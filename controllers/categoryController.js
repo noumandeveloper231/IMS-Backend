@@ -1,14 +1,13 @@
 // controllers/categoryController.js
 import Category from "../models/categoryModel.js";
-import fs from "fs/promises";
-import path from "path";
-
-const __dirname = path.resolve(); // root path
+import { uploadToBlob, deleteFromBlobIfUrl } from "../utils/blob.js";
 // ✅ Create category
 export const createCategory = async (req, res) => {
   try {
     const { name } = req.body;
-    const image = req.file ? `/uploads/categories/${req.file.filename}` : null;
+    const image = req.file
+      ? await uploadToBlob(req.file, "categories")
+      : null;
 
     const category = new Category({ name, image });
     await category.save();
@@ -139,7 +138,7 @@ export const updateCategory = async (req, res) => {
     const { id } = req.params;
     const { name } = req.body;
     const newImage = req.file
-      ? `/uploads/categories/${req.file.filename}`
+      ? await uploadToBlob(req.file, "categories")
       : null;
 
     // 🔎 Check if another category with same name exists
@@ -164,14 +163,9 @@ export const updateCategory = async (req, res) => {
       });
     }
 
-    // ✅ Agar new image upload hui hai to purani image delete karo
+    // ✅ Agar new image upload hui hai to purani Blob image delete karo
     if (newImage && category.image) {
-      const oldImagePath = path.join(process.cwd(), category.image);
-      try {
-        await fs.unlink(oldImagePath); // async delete
-      } catch (err) {
-        console.warn("⚠️ Old category image delete failed:", err.message);
-      }
+      await deleteFromBlobIfUrl(category.image);
     }
 
     // ✅ Update category fields
@@ -206,14 +200,9 @@ export const deleteCategory = async (req, res) => {
       });
     }
 
-    // ✅ Agar category ki image hai to delete karo
+    // ✅ Agar category ki image hai to Blob se delete karo
     if (category.image) {
-      const imagePath = path.join(process.cwd(), category.image); // category.image = "/uploads/categories/xyz.jpg"
-      try {
-        await fs.unlink(imagePath); // async delete
-      } catch (err) {
-        console.warn("⚠️ Old category image delete failed:", err.message);
-      }
+      await deleteFromBlobIfUrl(category.image);
     }
 
     await Category.findByIdAndDelete(id);

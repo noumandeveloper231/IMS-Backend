@@ -7,6 +7,7 @@ import mongoose from "mongoose";
 import Condition from "../models/conditionModel.js";
 import Brand from "../models/brandModel.js";
 import QRCode from "qrcode";
+import { uploadToBlob } from "../utils/blob.js";
 // export const createPurchaseReceive = async (req, res) => {
 //   try {
 //     const { receiveNo, purchaseOrder, vendor, items, notes } = req.body;
@@ -222,7 +223,9 @@ export const createPurchaseReceive = async (req, res) => {
       const qrCode = await QRCode.toDataURL(sku);
 
       // 🖼️ Product image (optional)
-      const image = req.file ? `/uploads/products/${req.file.filename}` : null;
+      const image = req.file
+        ? await uploadToBlob(req.file, "products")
+        : null;
 
       // 🔍 Check product existence
       let product = await Product.findOne({ sku });

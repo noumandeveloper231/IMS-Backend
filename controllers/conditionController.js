@@ -1,16 +1,15 @@
 // controllers/conditionController.js
 import Condition from "../models/conditionModel.js";
-import fs from "fs/promises";
-import path from "path";
-
-const __dirname = path.resolve(); // current project root
+import { uploadToBlob, deleteFromBlobIfUrl } from "../utils/blob.js";
 
 // ✅ Create condition
 export const createCondition = async (req, res) => {
   try {
     const { name } = req.body;
 
-    const image = req.file ? `/uploads/conditions/${req.file.filename}` : null;
+    const image = req.file
+      ? await uploadToBlob(req.file, "conditions")
+      : null;
     // Check if Condition already exists
     const existingCondition = await Condition.findOne({ name: name.trim() });
 
@@ -147,7 +146,7 @@ export const updateCondition = async (req, res) => {
     const { id } = req.params;
     const { name } = req.body;
     const newImage = req.file
-      ? `/uploads/conditions/${req.file.filename}`
+      ? await uploadToBlob(req.file, "conditions")
       : null;
 
     // 🔎 Check if another condition with same name exists
@@ -171,14 +170,9 @@ export const updateCondition = async (req, res) => {
       });
     }
 
-    // ✅ Agar new image upload hui hai to purani image delete karo
+    // ✅ Agar new image upload hui hai to purani Blob image delete karo
     if (newImage && condition.image) {
-      const oldImagePath = path.join(process.cwd(), condition.image);
-      try {
-        await fs.unlink(oldImagePath); // async delete
-      } catch (err) {
-        console.warn("⚠️ Old condition image delete failed:", err.message);
-      }
+      await deleteFromBlobIfUrl(condition.image);
     }
 
     // ✅ Update condition fields
@@ -213,14 +207,9 @@ export const deleteCondition = async (req, res) => {
       });
     }
 
-    // ✅ Agar condition ki image hai to delete karo
+    // ✅ Agar condition ki image hai to Blob se delete karo
     if (condition.image) {
-      const imagePath = path.join(process.cwd(), condition.image); // condition.image = "/uploads/conditions/xyz.jpg"
-      try {
-        await fs.unlink(imagePath); // async delete
-      } catch (err) {
-        console.warn("⚠️ Old condition image delete failed:", err.message);
-      }
+      await deleteFromBlobIfUrl(condition.image);
     }
 
     await Condition.findByIdAndDelete(id);

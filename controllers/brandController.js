@@ -1,15 +1,12 @@
-// controllers/categoryController.js
+// controllers/brandController.js
 import Brand from "../models/brandModel.js";
-import fs from "fs/promises";
-import path from "path";
-
-const __dirname = path.resolve(); // current project root
+import { uploadToBlob, deleteFromBlobIfUrl } from "../utils/blob.js";
 
 export const createBrand = async (req, res) => {
   try {
     const { name } = req.body;
 
-    const image = req.file ? `/uploads/brands/${req.file.filename}` : null;
+    const image = req.file ? await uploadToBlob(req.file, "brands") : null;
 
     const existingBrand = await Brand.findOne({ name: name.trim() });
     if (existingBrand) {
@@ -149,7 +146,7 @@ export const updateBrand = async (req, res) => {
   try {
     const { id } = req.params;
     const { name } = req.body;
-    const newImage = req.file ? `/uploads/brands/${req.file.filename}` : null;
+    const newImage = req.file ? await uploadToBlob(req.file, "brands") : null;
 
     // 🔎 Check duplicate name (excluding same id)
     const duplicate = await Brand.findOne({
@@ -172,14 +169,9 @@ export const updateBrand = async (req, res) => {
       });
     }
 
-    // ✅ Agar new image upload hui hai to purani image delete karo (async)
+    // ✅ Agar new image upload hui hai to purani Blob image delete karo (async)
     if (newImage && brand.image) {
-      const oldImagePath = path.join(process.cwd(), brand.image);
-      try {
-        await fs.unlink(oldImagePath); // async delete
-      } catch (err) {
-        console.warn("⚠️ Old image delete failed:", err.message);
-      }
+      await deleteFromBlobIfUrl(brand.image);
     }
 
     // ✅ Update brand
@@ -214,14 +206,9 @@ export const deleteBrand = async (req, res) => {
       });
     }
 
-    // ✅ Agar brand ki image hai to delete karo
+    // ✅ Agar brand ki image hai to Blob se delete karo (sirf URL hone par)
     if (brand.image) {
-      const imagePath = path.join(process.cwd(), brand.image); // brand.image = "/uploads/brands/xyz.jpg"
-      try {
-        await fs.unlink(imagePath); // async delete
-      } catch (err) {
-        console.warn("⚠️ Old brand image delete failed:", err.message);
-      }
+      await deleteFromBlobIfUrl(brand.image);
     }
 
     await Brand.findByIdAndDelete(id);

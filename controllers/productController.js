@@ -3,11 +3,8 @@ import Category from "../models/categoryModel.js";
 import Brand from "../models/brandModel.js";
 import Condition from "../models/conditionModel.js";
 import QRCode from "qrcode";
-import * as fs from "fs/promises"; // 👈 async version
-import path from "path";
 import xlsx from "xlsx";
-
-const __dirname = path.resolve(); // current project root
+import { uploadToBlob, deleteFromBlobIfUrl } from "../utils/blob.js";
 
 // Create Product
 export const createProduct = async (req, res) => {
@@ -57,7 +54,7 @@ export const createProduct = async (req, res) => {
     // ✅ SKU se QR generate karna
     const qrCode = await QRCode.toDataURL(sku);
 
-    const image = req.file ? `/uploads/products/${req.file.filename}` : null;
+    const image = req.file ? await uploadToBlob(req.file, "products") : null;
 
     const product = new Product({
       title,
@@ -207,14 +204,11 @@ export const bulkImportProducts = async (req, res) => {
       return res.status(400).json({ message: "No file uploaded" });
     }
 
-    // ✅ Excel file parse karo
-    const workbook = xlsx.readFile(req.file.path);
+    // ✅ Excel file parse karo (memory buffer se, disk nahi)
+    const workbook = xlsx.read(req.file.buffer, { type: "buffer" });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
     const rows = xlsx.utils.sheet_to_json(sheet);
-
-    // ✅ temp file delete after parsing
-    await fs.unlink(req.file.path);
 
     let importedItems = [];
 
@@ -333,17 +327,11 @@ export const updateProduct = async (req, res) => {
     // ✅ Agar new image upload hui hai
     let image;
     if (req.file) {
-      image = `/uploads/products/${req.file.filename}`;
+      image = await uploadToBlob(req.file, "products");
 
-      // Purani image delete karo
+      // Purani Blob image delete karo (sirf URL hone par)
       if (currentProduct.image) {
-        const oldImagePath = path.join(process.cwd(), currentProduct.image);
-        try {
-          await fs.unlink(oldImagePath);
-          console.log("🗑️ Old product image deleted:", currentProduct.image);
-        } catch (err) {
-          console.warn("⚠️ Old image delete failed:", err.message);
-        }
+        await deleteFromBlobIfUrl(currentProduct.image);
       }
     }
 
@@ -446,14 +434,9 @@ export const deleteProduct = async (req, res) => {
       });
     }
 
-    // ✅ Agar product ki image hai to delete karo
+    // ✅ Agar product ki image hai to Blob se delete karo (sirf URL hone par)
     if (product.image) {
-      const imagePath = path.join(process.cwd(), product.image); // product.image = "/uploads/products/xyz.jpg"
-      try {
-        await fs.unlink(imagePath); // async delete
-      } catch (err) {
-        console.warn("⚠️ Old product image delete failed:", err.message);
-      }
+      await deleteFromBlobIfUrl(product.image);
     }
 
     await Product.findByIdAndDelete(id);

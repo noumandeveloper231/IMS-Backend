@@ -15,8 +15,8 @@ export const createBill = async (req, res) => {
 export const getBills = async (req, res) => {
   try {
     const bills = await Bill.find()
-      .populate("vendor", "name contact")
-      .populate("purchaseOrder", "orderNumber");
+      .populate("vendor", "name companyName email phone")
+      .populate("purchaseOrder", "orderNo");
     res.json(bills);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -27,8 +27,8 @@ export const getBills = async (req, res) => {
 export const getBillById = async (req, res) => {
   try {
     const bill = await Bill.findById(req.params.id)
-      .populate("vendor", "name contact")
-      .populate("purchaseOrder", "orderNumber");
+      .populate("vendor", "name companyName email phone")
+      .populate("purchaseOrder", "orderNo");
     if (!bill) return res.status(404).json({ error: "Bill not found" });
     res.json(bill);
   } catch (error) {

@@ -1,15 +1,8 @@
 import multer from "multer";
 import path from "path";
 
-// Storage engine
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/products"); // products images yaha save hongi
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + "-" + file.originalname.replace(/\s+/g, "_"));
-  },
-});
+// In-memory storage for Vercel (no disk writes)
+const storage = multer.memoryStorage();
 
 // File filter (only images)
 const fileFilter = (req, file, cb) => {
@@ -29,3 +22,4 @@ const fileFilter = (req, file, cb) => {
 const uploadProducts = multer({ storage, fileFilter });
 
 export default uploadProducts;
+

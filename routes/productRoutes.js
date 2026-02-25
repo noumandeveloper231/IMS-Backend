@@ -1,5 +1,6 @@
 // routes/productRoutes.js
 import express from "express";
+import multer from "multer";
 import uploadProducts from "../middlewares/uploadProducts.js";
 import {
   createProduct,
@@ -13,12 +14,10 @@ import {
   deleteProduct,
 } from "../controllers/productController.js";
 import { getStockCounts } from "../controllers/countController.js";
-import multer from "multer";
-
 const router = express.Router();
 
-// ✅ Multer setup (file upload temp folder me)
-const upload = multer({ dest: "uploads/" });
+// ✅ Multer setup for in-memory Excel upload (no disk on Vercel)
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Public endpoints
 router.post("/create", uploadProducts.single("image"), createProduct); // Create

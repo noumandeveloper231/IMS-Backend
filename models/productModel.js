@@ -39,8 +39,11 @@ const productSchema = new mongoose.Schema(
         required: true,
       },
     ],
-    // ✅ If you want multiple images
-    // images: [{ type: String }],
+    images: [
+      {
+        type: String,
+      },
+    ],
     image: {
       type: String, // yaha image ka URL ya filename store hoga
     },

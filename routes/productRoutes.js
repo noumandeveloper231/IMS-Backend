@@ -20,11 +20,11 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Public endpoints
-router.post("/create", uploadProducts.single("image"), createProduct); // Create
+router.post("/create", uploadProducts.any(), createProduct); // Create (supports multiple images)
 router.get("/getall", getProducts); // List
 router.get("/stock-counts", getStockCounts);
 router.get("/getone/:id", getProductById); // Read one
-router.put("/update/:id", uploadProducts.single("image"), updateProduct); // Update
+router.put("/update/:id", uploadProducts.any(), updateProduct); // Update (supports multiple images)
 router.get("/filter/:type/:id", getProductsByFilter);
 router.get("/filter/stock/:status", getProductsByFilterStock);
 router.post("/bulk-create", bulkCreateProducts);

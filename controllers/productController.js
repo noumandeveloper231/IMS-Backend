@@ -54,7 +54,25 @@ export const createProduct = async (req, res) => {
     // ✅ SKU se QR generate karna
     const qrCode = await QRCode.toDataURL(sku);
 
-    const image = req.file ? await uploadToBlob(req.file, "products") : null;
+    // ✅ Multiple images support (images[] or image)
+    let uploadedImages = [];
+    if (Array.isArray(req.files) && req.files.length > 0) {
+      const imageFiles = req.files.filter(
+        (file) => file.fieldname === "images" || file.fieldname === "image"
+      );
+      if (imageFiles.length > 0) {
+        uploadedImages = await Promise.all(
+          imageFiles.map((file) => uploadToBlob(file, "products"))
+        );
+      }
+    } else if (req.file) {
+      const singleImage = await uploadToBlob(req.file, "products");
+      if (singleImage) {
+        uploadedImages = [singleImage];
+      }
+    }
+
+    const image = uploadedImages[0] || null;
 
     const product = new Product({
       title,
@@ -72,6 +90,7 @@ export const createProduct = async (req, res) => {
       returnable: returnable ?? true,
       qrCode,
       image,
+      images: uploadedImages,
     });
 
     await product.save();
@@ -172,6 +191,7 @@ export const bulkCreateProducts = async (req, res) => {
         conditions: conditionIds,
         qrCode,
         image: item.image || null,
+        images: item.image ? [item.image] : [],
       });
     }
 
@@ -324,10 +344,34 @@ export const updateProduct = async (req, res) => {
         .json({ success: false, message: "Product not found ❌" });
     }
 
-    // ✅ Agar new image upload hui hai
-    let image;
-    if (req.file) {
-      image = await uploadToBlob(req.file, "products");
+    // ✅ Agar new image(s) upload hui hain
+    let uploadedImages;
+    if (Array.isArray(req.files) && req.files.length > 0) {
+      const imageFiles = req.files.filter(
+        (file) => file.fieldname === "images" || file.fieldname === "image"
+      );
+      if (imageFiles.length > 0) {
+        uploadedImages = await Promise.all(
+          imageFiles.map((file) => uploadToBlob(file, "products"))
+        );
+
+        // Purani Blob images delete karo (sirf URL hone par)
+        if (Array.isArray(currentProduct.images)) {
+          for (const img of currentProduct.images) {
+            if (img) {
+              await deleteFromBlobIfUrl(img);
+            }
+          }
+        }
+        if (currentProduct.image && (!currentProduct.images || !currentProduct.images.length)) {
+          await deleteFromBlobIfUrl(currentProduct.image);
+        }
+      }
+    } else if (req.file) {
+      const singleImage = await uploadToBlob(req.file, "products");
+      if (singleImage) {
+        uploadedImages = [singleImage];
+      }
 
       // Purani Blob image delete karo (sirf URL hone par)
       if (currentProduct.image) {
@@ -355,8 +399,12 @@ export const updateProduct = async (req, res) => {
       brands,
       conditions,
       ...(qrCode && { qrCode }),
-      ...(image && { image }),
     };
+
+    if (uploadedImages && uploadedImages.length) {
+      updateData.images = uploadedImages;
+      updateData.image = uploadedImages[0];
+    }
 
     const product = await Product.findByIdAndUpdate(id, updateData, {
       new: true,
@@ -434,7 +482,14 @@ export const deleteProduct = async (req, res) => {
       });
     }
 
-    // ✅ Agar product ki image hai to Blob se delete karo (sirf URL hone par)
+    // ✅ Agar product ki images hain to Blob se delete karo (sirf URL hone par)
+    if (Array.isArray(product.images)) {
+      for (const img of product.images) {
+        if (img) {
+          await deleteFromBlobIfUrl(img);
+        }
+      }
+    }
     if (product.image) {
       await deleteFromBlobIfUrl(product.image);
     }

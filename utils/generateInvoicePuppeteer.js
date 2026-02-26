@@ -1,5 +1,6 @@
 // src/utils/generateInvoicePuppeteer.js
-import puppeteer from "puppeteer";
+import puppeteer from "puppeteer-core";
+import chromium from "@sparticuz/chromium";
 import QRCode from "qrcode";
 import path from "path";
 import fs from "fs";
@@ -39,9 +40,6 @@ const generateInvoicePDF = async (res, sale) => {
     const tax = sale.tax || 0;
     const discount = sale.discount || 0;
     const total = subtotal + tax - discount;
-
-    // Status color
-    const statusColor = sale.status === "paid" ? "#16a34a" : "#dc2626"; // green/red
 
     // Generate HTML with inline Tailwind
     const html = `
@@ -155,8 +153,25 @@ const generateInvoicePDF = async (res, sale) => {
       </html>
     `;
 
-    // Puppeteer
-    const browser = await puppeteer.launch({ args: ["--no-sandbox"] });
+    // Decide executable path: local dev vs serverless (Vercel/Lambda)
+    const isDev = process.env.NODE_ENV !== "production";
+
+    // On Vercel/Lambda, chromium.executablePath() returns the bundled binary.
+    // On local Windows dev, point to your installed Chrome if chromium has none.
+    let executablePath = await chromium.executablePath();
+
+    if (isDev && !executablePath) {
+      // Adjust this path if your Chrome is installed elsewhere
+      executablePath =
+        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+    }
+
+    const browser = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath,
+      headless: chromium.headless,
+    });
     const page = await browser.newPage();
 
     await page.setContent(html, {

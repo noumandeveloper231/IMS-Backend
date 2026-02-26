@@ -13,6 +13,8 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@sparticuz/chromium": "^143.0.4",
+    "@vercel/blob": "^0.27.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
@@ -21,10 +23,9 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.18.0",
     "multer": "^2.0.2",
-    "@vercel/blob": "^0.27.0",
     "nodemon": "^3.1.10",
     "pdfkit": "^0.17.2",
-    "puppeteer": "^24.19.0",
+    "puppeteer-core": "^24.37.5",
     "qrcode": "^1.5.4",
     "xlsx": "^0.18.5"
   }

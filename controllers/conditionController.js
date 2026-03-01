@@ -1,6 +1,52 @@
 // controllers/conditionController.js
+import mongoose from "mongoose";
 import Condition from "../models/conditionModel.js";
+import Product from "../models/productModel.js";
 import { uploadToBlob, deleteFromBlobIfUrl } from "../utils/blob.js";
+
+// ✅ Upload condition image only (returns URL for use in bulk import etc.)
+export const uploadConditionImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No image file provided",
+      });
+    }
+    const imageUrl = await uploadToBlob(req.file, "conditions");
+    res.status(200).json({
+      success: true,
+      url: imageUrl,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to upload image",
+      error: error.message,
+    });
+  }
+};
+
+// ✅ Delete condition image from blob by URL (for import: replace image from device)
+export const deleteConditionImageByUrl = async (req, res) => {
+  try {
+    const { imageUrl } = req.body || {};
+    if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid image URL required",
+      });
+    }
+    await deleteFromBlobIfUrl(imageUrl);
+    res.status(200).json({ success: true, message: "Image removed" });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete image",
+      error: error.message,
+    });
+  }
+};
 
 // ✅ Create condition
 export const createCondition = async (req, res) => {
@@ -74,6 +120,80 @@ export const createBulkConditions = async (req, res) => {
     });
   }
 };
+// ✅ Get condition dependencies (products count)
+export const getConditionDependencies = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const condition = await Condition.findById(id);
+    if (!condition) {
+      return res.status(404).json({
+        success: false,
+        message: "Condition not found",
+      });
+    }
+    const productsCount = await Product.countDocuments({ condition: id });
+    res.status(200).json({
+      success: true,
+      productsCount: productsCount || 0,
+      hasDependencies: (productsCount || 0) > 0,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to get condition dependencies",
+      error: error.message,
+    });
+  }
+};
+
+// ✅ Transfer condition dependencies to another condition, then delete
+export const transferConditionDependencies = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { transferToConditionId } = req.body;
+    if (!transferToConditionId) {
+      return res.status(400).json({
+        success: false,
+        message: "transferToConditionId is required",
+      });
+    }
+    const condition = await Condition.findById(id);
+    if (!condition) {
+      return res.status(404).json({
+        success: false,
+        message: "Condition not found",
+      });
+    }
+    const targetCondition = await Condition.findById(transferToConditionId);
+    if (!targetCondition || targetCondition._id.toString() === id) {
+      return res.status(400).json({
+        success: false,
+        message: "Target condition not found or cannot transfer to same condition",
+      });
+    }
+    const conditionObjId = new mongoose.Types.ObjectId(id);
+    const targetObjId = new mongoose.Types.ObjectId(transferToConditionId);
+    await Product.updateMany(
+      { condition: conditionObjId },
+      { $set: { condition: targetObjId } }
+    );
+    if (condition.image) {
+      await deleteFromBlobIfUrl(condition.image);
+    }
+    await Condition.findByIdAndDelete(id);
+    res.status(200).json({
+      success: true,
+      message: "Dependencies transferred and condition deleted successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to transfer dependencies " + error.message,
+      error: error.message,
+    });
+  }
+};
+
 // ✅ Get all conditions
 export const getConditions = async (req, res) => {
   try {
@@ -98,7 +218,7 @@ export const getConditionsCount = async (req, res) => {
         $lookup: {
           from: "products", // products collection ka naam
           localField: "_id",
-          foreignField: "conditions", // <-- yaha plural rakho
+          foreignField: "condition",
           as: "products",
         },
       },
@@ -194,10 +314,11 @@ export const updateCondition = async (req, res) => {
     });
   }
 };
-// ✅ Delete condition
+// ✅ Delete condition (with optional cascade: unlink from products)
 export const deleteCondition = async (req, res) => {
   try {
     const { id } = req.params;
+    const cascade = req.query.cascade === "true";
     const condition = await Condition.findById(id);
 
     if (!condition) {
@@ -207,7 +328,28 @@ export const deleteCondition = async (req, res) => {
       });
     }
 
-    // ✅ Agar condition ki image hai to Blob se delete karo
+    if (cascade) {
+      const products = await Product.find({ condition: id });
+      for (const product of products) {
+        if (Array.isArray(product.images)) {
+          for (const img of product.images) {
+            if (img) await deleteFromBlobIfUrl(img);
+          }
+        }
+        if (product.image) await deleteFromBlobIfUrl(product.image);
+        await Product.findByIdAndDelete(product._id);
+      }
+    } else {
+      const productCount = await Product.countDocuments({ condition: id });
+      if (productCount > 0) {
+        return res.status(409).json({
+          success: false,
+          message: "Condition has linked products. Use cascade or transfer.",
+          productsCount: productCount,
+        });
+      }
+    }
+
     if (condition.image) {
       await deleteFromBlobIfUrl(condition.image);
     }

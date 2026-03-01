@@ -58,3 +58,47 @@ export const deleteEmployee = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// ✅ Bulk Create Employees (import)
+export const createBulkEmployees = async (req, res) => {
+  try {
+    const employeesData = Array.isArray(req.body) ? req.body : req.body?.employees ?? [];
+    const ROLES = ["salesman", "cashier", "manager", "admin"];
+    const STATUSES = ["active", "inactive"];
+    let createdCount = 0;
+    let errorCount = 0;
+    const created = [];
+
+    for (const data of employeesData) {
+      try {
+        const payload = {
+          name: data.name ?? data.Name ?? "",
+          phone: String(data.phone ?? data.Phone ?? ""),
+          email: String(data.email ?? data.Email ?? ""),
+          role: ROLES.includes(data.role ?? data.Role) ? (data.role ?? data.Role) : "salesman",
+          salary: Number(data.salary ?? data.Salary ?? 0) || 0,
+          status: STATUSES.includes(data.status ?? data.Status) ? (data.status ?? data.Status) : "active",
+        };
+        const employee = await Employee.create(payload);
+        created.push(employee);
+        createdCount++;
+      } catch {
+        errorCount++;
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      createdCount,
+      errorCount,
+      message: `${createdCount} employees created${errorCount > 0 ? `, ${errorCount} errors` : ""}`,
+      employees: created,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to create employees in bulk",
+      error: error.message,
+    });
+  }
+};

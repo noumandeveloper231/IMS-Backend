@@ -141,8 +141,8 @@ export const getProfitLossReport = async (req, res, next) => {
 export const getInventoryReport = async (req, res, next) => {
   try {
     const products = await Product.find()
-      .populate("categories", "name")
-      .populate("brands", "name")
+      .populate("category", "name")
+      .populate("brand", "name")
       .select("title sku quantity purchasePrice salePrice totalCost")
       .lean();
 

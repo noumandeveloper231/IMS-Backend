@@ -46,6 +46,65 @@ export const createSubcategory = async (req, res) => {
   }
 };
 
+// Bulk create subcategories (same pattern as categories)
+export const createBulkSubcategories = async (req, res) => {
+  try {
+    const subcategoriesData = req.body; // Array of { name, category }
+
+    if (!Array.isArray(subcategoriesData)) {
+      return res.status(400).json({
+        success: false,
+        message: "Request body must be an array of subcategories",
+      });
+    }
+
+    const createdSubcategories = [];
+    for (const item of subcategoriesData) {
+      const { name, category } = item;
+
+      if (!name?.trim() || !category) {
+        console.log("Skipping row: name and category are required");
+        continue;
+      }
+
+      const categoryExists = await Category.findById(category);
+      if (!categoryExists) {
+        console.log(`Skipping: category not found for id ${category}`);
+        continue;
+      }
+
+      const existing = await Subcategory.findOne({
+        name: name.trim(),
+        category,
+      });
+      if (existing) {
+        console.log(`Subcategory already exists, skipping: ${name} in category ${category}`);
+        continue;
+      }
+
+      const newSubcategory = new Subcategory({
+        name: name.trim(),
+        category,
+      });
+      await newSubcategory.save();
+      await newSubcategory.populate("category", "name");
+      createdSubcategories.push(newSubcategory);
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `${createdSubcategories.length} subcategories created successfully`,
+      subcategories: createdSubcategories,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to create subcategories in bulk",
+      error: error.message,
+    });
+  }
+};
+
 // Get all subcategories (optionally by category)
 export const getSubcategories = async (req, res) => {
   try {

@@ -2,6 +2,7 @@
 import express from "express";
 import {
   createSubcategory,
+  createBulkSubcategories,
   getSubcategories,
   getSubcategoriesByCategory,
   getSubcategoryById,
@@ -12,6 +13,7 @@ import {
 const router = express.Router();
 
 router.post("/create", createSubcategory);
+router.post("/createbulk", createBulkSubcategories); // Bulk create
 router.get("/getall", getSubcategories);
 router.get("/getbycategory/:categoryId", getSubcategoriesByCategory);
 router.get("/getone/:id", getSubcategoryById);

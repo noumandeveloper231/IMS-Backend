@@ -242,9 +242,8 @@ export const createPurchaseReceive = async (req, res) => {
           title,
           asin,
           sku,
-          // brands: [brandId], // ✅ array of ObjectId
-          brands: brandId ? [brandId] : [], // handle null
-          conditions: [conditionId], // ✅ array of ObjectId
+          brand: brandId || undefined,
+          condition: conditionId || undefined,
           purchasePrice,
           salePrice,
           quantity: receivedQty,

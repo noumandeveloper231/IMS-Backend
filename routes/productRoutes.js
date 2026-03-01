@@ -12,6 +12,8 @@ import {
   bulkCreateProducts,
   bulkImportProducts,
   deleteProduct,
+  uploadProductImage,
+  deleteProductImageByUrl,
 } from "../controllers/productController.js";
 import { getStockCounts } from "../controllers/countController.js";
 const router = express.Router();
@@ -21,6 +23,8 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // Public endpoints
 router.post("/create", uploadProducts.any(), createProduct); // Create (supports multiple images)
+router.post("/upload-image", uploadProducts.single("image"), uploadProductImage); // Upload image only (bulk import)
+router.post("/delete-image-by-url", deleteProductImageByUrl); // Delete blob image by URL (for import replace)
 router.get("/getall", getProducts); // List
 router.get("/stock-counts", getStockCounts);
 router.get("/getone/:id", getProductById); // Read one

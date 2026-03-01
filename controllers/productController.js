@@ -1,10 +1,56 @@
 import Product from "../models/productModel.js";
 import Category from "../models/categoryModel.js";
+import Subcategory from "../models/subcategoryModel.js";
 import Brand from "../models/brandModel.js";
 import Condition from "../models/conditionModel.js";
+import Sale from "../models/saleModel.js";
 import QRCode from "qrcode";
 import xlsx from "xlsx";
 import { uploadToBlob, deleteFromBlobIfUrl } from "../utils/blob.js";
+
+// ✅ Upload product image only (returns URL for use in bulk import etc.)
+export const uploadProductImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No image file provided",
+      });
+    }
+    const imageUrl = await uploadToBlob(req.file, "products");
+    res.status(200).json({
+      success: true,
+      url: imageUrl,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to upload image",
+      error: error.message,
+    });
+  }
+};
+
+// ✅ Delete product image from blob by URL (for import: replace image from device)
+export const deleteProductImageByUrl = async (req, res) => {
+  try {
+    const { imageUrl } = req.body || {};
+    if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid image URL required",
+      });
+    }
+    await deleteFromBlobIfUrl(imageUrl);
+    res.status(200).json({ success: true, message: "Image removed" });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete image",
+      error: error.message,
+    });
+  }
+};
 
 // Create Product
 export const createProduct = async (req, res) => {
@@ -18,10 +64,10 @@ export const createProduct = async (req, res) => {
       quantity,
       description,
       modelno,
-      categories,
-      subcategories,
-      brands,
-      conditions,
+      category,
+      subcategory,
+      brand,
+      condition,
       returnable,
     } = req.body;
 
@@ -83,10 +129,10 @@ export const createProduct = async (req, res) => {
       quantity,
       description,
       modelno,
-      categories: categories || [],
-      subcategories: subcategories || [],
-      brands,
-      conditions,
+      category: category || null,
+      subcategory: subcategory || null,
+      brand,
+      condition,
       returnable: returnable ?? true,
       qrCode,
       image,
@@ -116,9 +162,10 @@ export const bulkCreateProducts = async (req, res) => {
       });
     }
 
-    // 🔹 Fetch all categories, brands, conditions once for efficiency
-    const [categoriesList, brandsList, conditionsList] = await Promise.all([
+    // 🔹 Fetch all categories, subcategories, brands, conditions once for efficiency
+    const [categoriesList, subcategoriesList, brandsList, conditionsList] = await Promise.all([
       Category.find().select("name _id").lean(),
+      Subcategory.find().select("name _id category").lean(),
       Brand.find().select("name _id").lean(),
       Condition.find().select("name _id").lean(),
     ]);
@@ -126,56 +173,45 @@ export const bulkCreateProducts = async (req, res) => {
     const newProducts = [];
 
     for (const item of products) {
-      // 🔍 SKU or ModelNo duplicates check karein
-      const existingProduct = await Product.findOne({
-        $or: [
-          { sku: item.sku },
-          { modelno: item.modelno },
-          { asin: item.asin },
-        ],
-      });
+      // 🔍 Duplicate check: use SKU only (generated from ASIN+Condition on frontend)
+      const existingProduct = await Product.findOne({ sku: item.sku });
       if (existingProduct) {
-        // console.log(
-        //   `Product with SKU ${item.sku} or Model No ${item.modelno} or ASIN ${item.asin} already exists, skipping.`
-        // );
         continue;
       }
 
-      // 🔹 Categories ko map karein
-      let categoryIds = [];
-      if (item.categories) {
-        const names = Array.isArray(item.categories)
-          ? item.categories
-          : item.categories.split(",").map((c) => c.trim());
-        categoryIds = categoriesList
-          .filter((c) => names.includes(c.name))
-          .map((c) => c._id);
-      }
+      // 🔹 Resolve id from value: accept MongoDB ObjectId (24 hex) or name
+      const resolveId = (list, value) => {
+        if (!value) return null;
+        const str = Array.isArray(value) ? value[0] : String(value).split(",")[0].trim();
+        if (!str) return null;
+        if (/^[a-fA-F0-9]{24}$/.test(str)) {
+          const byId = list.find((x) => String(x._id) === str);
+          return byId ? byId._id : null;
+        }
+        const byName = list.find((x) => (x.name || "").trim() === str);
+        return byName ? byName._id : null;
+      };
 
-      // 🔹 Brands ko map karein
-      let brandIds = [];
-      if (item.brands) {
-        const names = Array.isArray(item.brands)
-          ? item.brands
-          : item.brands.split(",").map((b) => b.trim());
-        brandIds = brandsList
-          .filter((b) => names.includes(b.name))
-          .map((b) => b._id);
-      }
+      // 🔹 Category (accept category/categories/Categories from payload)
+      const categoryRaw = item.category ?? item.categories ?? item.Categories;
+      let categoryId = resolveId(categoriesList, categoryRaw);
 
-      // 🔹 Conditions ko map karein
-      let conditionIds = [];
-      if (item.conditions) {
-        const names = Array.isArray(item.conditions)
-          ? item.conditions
-          : item.conditions.split(",").map((c) => c.trim());
-        conditionIds = conditionsList
-          .filter((c) => names.includes(c.name))
-          .map((c) => c._id);
-      }
+      // 🔹 Subcategory
+      const subcategoryRaw = item.subcategory ?? item.subcategories ?? item.Subcategories;
+      let subcategoryId = resolveId(subcategoriesList, subcategoryRaw);
+
+      // 🔹 Brand
+      const brandRaw = item.brand ?? item.brands ?? item.Brands;
+      let brandId = resolveId(brandsList, brandRaw);
+
+      // 🔹 Condition
+      const conditionRaw = item.condition ?? item.conditions ?? item.Conditions;
+      let conditionId = resolveId(conditionsList, conditionRaw);
 
       // 🔹 QR Code generate karein
       const qrCode = await QRCode.toDataURL(item.sku);
+
+      if (!brandId || !conditionId) continue;
 
       newProducts.push({
         title: item.title,
@@ -186,9 +222,10 @@ export const bulkCreateProducts = async (req, res) => {
         quantity: item.quantity || 0,
         description: item.description,
         modelno: item.modelno,
-        categories: categoryIds,
-        brands: brandIds,
-        conditions: conditionIds,
+        category: categoryId,
+        subcategory: subcategoryId,
+        brand: brandId,
+        condition: conditionId,
         qrCode,
         image: item.image || null,
         images: item.image ? [item.image] : [],
@@ -268,10 +305,10 @@ export const bulkImportProducts = async (req, res) => {
 export const getProducts = async (req, res) => {
   try {
     const products = await Product.find()
-      .populate("brands")
-      .populate("conditions")
-      .populate("categories")
-      .populate("subcategories");
+      .populate("brand")
+      .populate("condition")
+      .populate("category")
+      .populate("subcategory");
 
     res.status(200).json({
       success: true,
@@ -287,10 +324,10 @@ export const getProducts = async (req, res) => {
 export const getProductById = async (req, res) => {
   try {
     const product = await Product.findById(req.params.id)
-      .populate("brands")
-      .populate("conditions")
-      .populate("categories")
-      .populate("subcategories");
+      .populate("brand")
+      .populate("condition")
+      .populate("category")
+      .populate("subcategory");
 
     if (!product) {
       return res
@@ -317,10 +354,10 @@ export const updateProduct = async (req, res) => {
       quantity,
       description,
       modelno,
-      categories,
-      subcategories,
-      brands,
-      conditions,
+      category,
+      subcategory,
+      brand,
+      condition,
     } = req.body;
 
     // 🔍 Duplicate check: SKU ya ModelNo already exist karta hai?
@@ -394,10 +431,10 @@ export const updateProduct = async (req, res) => {
       quantity,
       description,
       modelno,
-      categories: categories || [],
-      subcategories: subcategories || [],
-      brands,
-      conditions,
+      category: category || null,
+      subcategory: subcategory || null,
+      brand,
+      condition,
       ...(qrCode && { qrCode }),
     };
 
@@ -426,19 +463,19 @@ export const getProductsByFilter = async (req, res) => {
     const { type, id } = req.params; // type = brand | category | condition | stock
     let filter = {};
 
-    if (type === "brand") filter.brands = id;
-    else if (type === "category") filter.categories = id;
-    else if (type === "condition") filter.conditions = id;
+    if (type === "brand") filter.brand = id;
+    else if (type === "category") filter.category = id;
+    else if (type === "condition") filter.condition = id;
     else if (type === "stock") {
       if (id === "in-stock") filter.quantity = { $gt: 0 };
       else if (id === "out-of-stock") filter.quantity = 0;
     }
 
     const products = await Product.find(filter)
-      .populate("categories", "name")
-      .populate("subcategories")
-      .populate("brands", "name")
-      .populate("conditions", "name");
+      .populate("category", "name")
+      .populate("subcategory")
+      .populate("brand", "name")
+      .populate("condition", "name");
 
     res.status(200).json({ success: true, products });
   } catch (error) {
@@ -459,7 +496,7 @@ export const getProductsByFilterStock = async (req, res) => {
     }
 
     const products = await Product.find(query).populate(
-      "brands categories subcategories conditions"
+      "brand category subcategory condition"
     );
 
     res.json({ success: true, products });
@@ -479,6 +516,14 @@ export const deleteProduct = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Product not found",
+      });
+    }
+
+    const usedInOrder = await Sale.findOne({ "items.product": id });
+    if (usedInOrder) {
+      return res.status(409).json({
+        success: false,
+        message: "Cannot delete product because it is linked to one or more orders. Remove or edit those orders first.",
       });
     }
 

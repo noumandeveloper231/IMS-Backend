@@ -1,6 +1,58 @@
 // controllers/categoryController.js
+import mongoose from "mongoose";
 import Category from "../models/categoryModel.js";
+import Subcategory from "../models/subcategoryModel.js";
+import Product from "../models/productModel.js";
 import { uploadToBlob, deleteFromBlobIfUrl } from "../utils/blob.js";
+import {
+  checkBulkDependencies as checkBulkDependenciesService,
+  bulkDeletePreview as bulkDeletePreviewService,
+  executeBulkDelete as executeBulkDeleteService,
+} from "../services/categoryBulkService.js";
+// ✅ Upload category image only (returns URL for use in bulk import etc.)
+export const uploadCategoryImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No image file provided",
+      });
+    }
+    const imageUrl = await uploadToBlob(req.file, "categories");
+    res.status(200).json({
+      success: true,
+      url: imageUrl,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to upload image",
+      error: error.message,
+    });
+  }
+};
+
+// ✅ Delete category image from blob by URL (for import: replace image from device)
+export const deleteCategoryImageByUrl = async (req, res) => {
+  try {
+    const { imageUrl } = req.body || {};
+    if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid image URL required",
+      });
+    }
+    await deleteFromBlobIfUrl(imageUrl);
+    res.status(200).json({ success: true, message: "Image removed" });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete image",
+      error: error.message,
+    });
+  }
+};
+
 // ✅ Create category
 export const createCategory = async (req, res) => {
   try {
@@ -85,9 +137,9 @@ export const getCategoriesCount = async (req, res) => {
     const categories = await Category.aggregate([
       {
         $lookup: {
-          from: "products", // products collection ka naam
+          from: "products",
           localField: "_id",
-          foreignField: "categories", // <-- yaha plural rakho
+          foreignField: "category",
           as: "products",
         },
       },
@@ -187,10 +239,99 @@ export const updateCategory = async (req, res) => {
     });
   }
 };
-// ✅ Delete category
+// ✅ Get category dependencies (subcategories count, products count)
+export const getCategoryDependencies = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const category = await Category.findById(id);
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+    const [subcategoriesCount, productsCount] = await Promise.all([
+      Subcategory.countDocuments({ category: id }),
+      Product.countDocuments({ category: id }),
+    ]);
+    res.status(200).json({
+      success: true,
+      subcategoriesCount: subcategoriesCount || 0,
+      productsCount: productsCount || 0,
+      hasDependencies: (subcategoriesCount || 0) > 0 || (productsCount || 0) > 0,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to get category dependencies",
+      error: error.message,
+    });
+  }
+};
+
+// ✅ Transfer category dependencies to another category, then delete
+export const transferCategoryDependencies = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { transferToCategoryId } = req.body;
+    if (!transferToCategoryId) {
+      return res.status(400).json({
+        success: false,
+        message: "transferToCategoryId is required",
+      });
+    }
+    const category = await Category.findById(id);
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+    const targetCategory = await Category.findById(transferToCategoryId);
+    if (!targetCategory || targetCategory._id.toString() === id) {
+      return res.status(400).json({
+        success: false,
+        message: "Target category not found or cannot transfer to same category",
+      });
+    }
+    // Move all subcategories to target category
+    await Subcategory.updateMany(
+      { category: id },
+      { $set: { category: transferToCategoryId } }
+    );
+    if (!mongoose.Types.ObjectId.isValid(id) ||
+      !mongoose.Types.ObjectId.isValid(transferToCategoryId)) {
+      throw new Error("Invalid category ID");
+    }
+    const categoryObjId = new mongoose.Types.ObjectId(id);
+    const targetObjId = new mongoose.Types.ObjectId(transferToCategoryId);
+    await Product.updateMany(
+      { category: categoryObjId },
+      { $set: { category: targetObjId } }
+    );
+    // Delete category and its image from blob
+    if (category.image) {
+      await deleteFromBlobIfUrl(category.image);
+    }
+    await Category.findByIdAndDelete(id);
+    res.status(200).json({
+      success: true,
+      message: "Dependencies transferred and category deleted successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to transfer dependencies " + error.message,
+      error: error.message,
+    });
+  }
+};
+
+// ✅ Delete category (with optional cascade: delete subcategories, unlink products)
 export const deleteCategory = async (req, res) => {
   try {
     const { id } = req.params;
+    const cascade = req.query.cascade === "true";
     const category = await Category.findById(id);
 
     if (!category) {
@@ -198,6 +339,39 @@ export const deleteCategory = async (req, res) => {
         success: false,
         message: "Category not found",
       });
+    }
+
+    if (cascade) {
+      // Delete all subcategories under this category
+      const subcategories = await Subcategory.find({ category: id });
+      for (const sub of subcategories) {
+        await Subcategory.findByIdAndDelete(sub._id);
+      }
+      // Delete all products linked to this category (and their blob images)
+      const products = await Product.find({ category: id });
+      for (const product of products) {
+        if (Array.isArray(product.images)) {
+          for (const img of product.images) {
+            if (img) await deleteFromBlobIfUrl(img);
+          }
+        }
+        if (product.image) await deleteFromBlobIfUrl(product.image);
+        await Product.findByIdAndDelete(product._id);
+      }
+    } else {
+      // Check if has dependencies
+      const [subCount, productCount] = await Promise.all([
+        Subcategory.countDocuments({ category: id }),
+        Product.countDocuments({ category: id }),
+      ]);
+      if (subCount > 0 || productCount > 0) {
+        return res.status(409).json({
+          success: false,
+          message: "Category has linked subcategories or products. Use cascade or transfer.",
+          subcategoriesCount: subCount,
+          productsCount: productCount,
+        });
+      }
     }
 
     // ✅ Agar category ki image hai to Blob se delete karo
@@ -215,6 +389,88 @@ export const deleteCategory = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to delete category",
+      error: error.message,
+    });
+  }
+};
+
+// ========== Bulk dependency & delete (enterprise) ==========
+
+/**
+ * POST /categories/check-bulk-dependencies
+ * Body: { categoryIds: string[] }
+ * Returns: { operationId, summary: { total, noDeps, needsResolution }, items: [...] }
+ */
+export const checkBulkDependencies = async (req, res) => {
+  try {
+    const { categoryIds } = req.body;
+    const result = await checkBulkDependenciesService(categoryIds);
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    const status =
+      error.message?.includes("not found") || error.message?.includes("Invalid")
+        ? 400
+        : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Failed to check bulk dependencies",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * POST /categories/bulk-delete-preview
+ * Body: { categoryIds: string[], resolutionPlan: { id, action, transferTo? }[] }
+ * Returns: { summary, categories } (simulation, no commit)
+ */
+export const bulkDeletePreview = async (req, res) => {
+  try {
+    const { categoryIds, resolutionPlan } = req.body;
+    const result = await bulkDeletePreviewService(categoryIds, resolutionPlan);
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    const status =
+      error.message?.includes("not found") || error.message?.includes("Invalid")
+        ? 400
+        : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Bulk delete preview failed",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * POST /categories/bulk-delete
+ * Body: { categoryIds: string[], resolutionPlan: { id, action, transferTo? }[] }
+ * Uses transaction; rollback on any failure.
+ */
+export const bulkDelete = async (req, res) => {
+  try {
+    const { categoryIds, resolutionPlan } = req.body;
+    const result = await executeBulkDeleteService(categoryIds, resolutionPlan);
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    const status =
+      error.message?.includes("not found") ||
+      error.message?.includes("Invalid") ||
+      error.message?.includes("cannot be in the delete list")
+        ? 400
+        : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Bulk delete failed",
       error: error.message,
     });
   }

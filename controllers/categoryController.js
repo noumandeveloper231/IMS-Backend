@@ -26,9 +26,10 @@ export const uploadCategoryImage = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Failed to upload image",
-      error: error.message,
+      message: "Failed to upload image " + error.message,
+      error: error.message, 
     });
+    console.log(error.message);
   }
 };
 

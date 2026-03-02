@@ -14,6 +14,10 @@ import {
   deleteProduct,
   uploadProductImage,
   deleteProductImageByUrl,
+  getProductDependencies,
+  checkBulkDependencies,
+  bulkDeletePreview,
+  bulkDelete,
 } from "../controllers/productController.js";
 import { getStockCounts } from "../controllers/countController.js";
 const router = express.Router();
@@ -34,6 +38,12 @@ router.get("/filter/stock/:status", getProductsByFilterStock);
 router.post("/bulk-create", bulkCreateProducts);
 router.post("/bulk-import", upload.single("file"), bulkImportProducts);
 router.delete("/delete/:id", deleteProduct); // Delete
+
+// Bulk dependency & delete (like Categories)
+router.get("/dependencies/:id", getProductDependencies);
+router.post("/check-bulk-dependencies", checkBulkDependencies);
+router.post("/bulk-delete-preview", bulkDeletePreview);
+router.post("/bulk-delete", bulkDelete);
 // router.get('/low-stock', verifyToken, allowRoles('admin', 'manager'), async (req, res) => {
 //   const items = await checkLowStock();
 //   res.json(items);

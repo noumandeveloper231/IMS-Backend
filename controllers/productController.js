@@ -7,6 +7,12 @@ import Sale from "../models/saleModel.js";
 import QRCode from "qrcode";
 import xlsx from "xlsx";
 import { uploadToBlob, deleteFromBlobIfUrl } from "../utils/blob.js";
+import {
+  getProductDependencies as getProductDependenciesService,
+  checkBulkDependencies as checkBulkDependenciesService,
+  bulkDeletePreview as bulkDeletePreviewService,
+  executeBulkDelete as executeBulkDeleteService,
+} from "../services/productBulkService.js";
 
 // ✅ Upload product image only (returns URL for use in bulk import etc.)
 export const uploadProductImage = async (req, res) => {
@@ -25,9 +31,10 @@ export const uploadProductImage = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Failed to upload image",
+      message: "Failed to upload image" + error.message,
       error: error.message,
     });
+    console.log(error.message);
   }
 };
 
@@ -506,9 +513,73 @@ export const getProductsByFilterStock = async (req, res) => {
       .json({ success: false, message: "Error fetching products" });
   }
 };
+
+// ========== Product dependencies & bulk delete (like Categories) ==========
+
+export const getProductDependencies = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await getProductDependenciesService(id);
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    const status = error.message?.includes("not found") || error.message?.includes("Invalid") ? 404 : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Failed to get product dependencies",
+      error: error.message,
+    });
+  }
+};
+
+export const checkBulkDependencies = async (req, res) => {
+  try {
+    const { productIds } = req.body;
+    const result = await checkBulkDependenciesService(productIds);
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    const status = error.message?.includes("not found") || error.message?.includes("Invalid") ? 400 : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Failed to check bulk dependencies",
+      error: error.message,
+    });
+  }
+};
+
+export const bulkDeletePreview = async (req, res) => {
+  try {
+    const { productIds } = req.body;
+    const result = await bulkDeletePreviewService(productIds);
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    const status = error.message?.includes("not found") || error.message?.includes("Invalid") ? 400 : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Bulk delete preview failed",
+      error: error.message,
+    });
+  }
+};
+
+export const bulkDelete = async (req, res) => {
+  try {
+    const { productIds } = req.body;
+    const result = await executeBulkDeleteService(productIds);
+    res.status(200).json(result);
+  } catch (error) {
+    const status = error.message?.includes("not found") || error.message?.includes("Invalid") ? 400 : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Bulk delete failed",
+      error: error.message,
+    });
+  }
+};
+
 export const deleteProduct = async (req, res) => {
   try {
     const { id } = req.params;
+    const cascade = req.query.cascade === "true";
 
     const product = await Product.findById(id);
 
@@ -519,15 +590,34 @@ export const deleteProduct = async (req, res) => {
       });
     }
 
-    const usedInOrder = await Sale.findOne({ "items.product": id });
-    if (usedInOrder) {
+    const salesUsingProduct = await Sale.find({ "items.product": id });
+    if (salesUsingProduct.length > 0 && !cascade) {
       return res.status(409).json({
         success: false,
-        message: "Cannot delete product because it is linked to one or more orders. Remove or edit those orders first.",
+        message: "Cannot delete product because it is linked to one or more orders. Use cascade to remove from orders and delete.",
       });
     }
 
-    // ✅ Agar product ki images hain to Blob se delete karo (sirf URL hone par)
+    if (cascade && salesUsingProduct.length > 0) {
+      for (const sale of salesUsingProduct) {
+        const remainingItems = sale.items.filter(
+          (item) => item.product && item.product.toString() !== id
+        );
+        const subTotal = remainingItems.reduce((sum, it) => sum + (Number(it.total) || 0), 0);
+        const totalCOGS = remainingItems.reduce(
+          (sum, it) => sum + (Number(it.purchasePrice) || 0) * (Number(it.quantity) || 0),
+          0
+        );
+        sale.items = remainingItems;
+        sale.subTotal = subTotal;
+        sale.COGS = totalCOGS;
+        sale.grandTotal =
+          subTotal + Number(sale.vat || 0) + Number(sale.shipping || 0) - Number(sale.discount || 0);
+        sale.profit = sale.grandTotal - totalCOGS;
+        await sale.save();
+      }
+    }
+
     if (Array.isArray(product.images)) {
       for (const img of product.images) {
         if (img) {
@@ -543,7 +633,9 @@ export const deleteProduct = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "Product deleted successfully",
+      message: cascade && salesUsingProduct.length > 0
+        ? "Product removed from orders and deleted successfully"
+        : "Product deleted successfully",
     });
   } catch (error) {
     res.status(500).json({

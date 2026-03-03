@@ -147,6 +147,7 @@ export async function bulkDeletePreview(productIds) {
  */
 export async function executeBulkDelete(productIds) {
   const result = await checkBulkDependencies(productIds);
+
   const toDeleteIds = result.items
     .filter((i) => i.status === "no_deps")
     .map((i) => new ObjectId(i.id));
@@ -157,49 +158,64 @@ export async function executeBulkDelete(productIds) {
       message: "No products could be deleted (all are linked to orders).",
       deleted: [],
       deletedCount: 0,
-      blocked: result.items.filter((i) => i.status === "needs_resolution").map((i) => ({ id: i.id, name: i.name, ordersCount: i.ordersCount })),
+      blocked: result.items
+        .filter((i) => i.status === "needs_resolution")
+        .map((i) => ({
+          id: i.id,
+          name: i.name,
+          ordersCount: i.ordersCount,
+        })),
       blockedCount: result.summary.needsResolution,
     };
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
-    const products = await Product.find({ _id: { $in: toDeleteIds } })
-      .session(session)
-      .lean();
+    // Get products first
+    const products = await Product.find({
+      _id: { $in: toDeleteIds },
+    }).lean();
 
+    // Delete images first
     for (const product of products) {
       if (Array.isArray(product.images)) {
         for (const img of product.images) {
           if (img) await deleteFromBlobIfUrl(img);
         }
       }
+
       if (product.image) {
         await deleteFromBlobIfUrl(product.image);
       }
-      await Product.findByIdAndDelete(product._id).session(session);
     }
 
-    await session.commitTransaction();
+    // Bulk delete in ONE query (much better performance)
+    await Product.deleteMany({
+      _id: { $in: toDeleteIds },
+    });
 
     const blocked = result.items
       .filter((i) => i.status === "needs_resolution")
-      .map((i) => ({ id: i.id, name: i.name, ordersCount: i.ordersCount }));
+      .map((i) => ({
+        id: i.id,
+        name: i.name,
+        ordersCount: i.ordersCount,
+      }));
 
     return {
       success: true,
-      message: `Deleted ${products.length} product(s).${blocked.length > 0 ? ` ${blocked.length} product(s) could not be deleted (linked to orders).` : ""}`,
-      deleted: products.map((p) => ({ id: p._id.toString(), name: p.title || p.sku })),
+      message: `Deleted ${products.length} product(s).${blocked.length > 0
+          ? ` ${blocked.length} product(s) could not be deleted (linked to orders).`
+          : ""
+        }`,
+      deleted: products.map((p) => ({
+        id: p._id.toString(),
+        name: p.title || p.sku,
+      })),
       deletedCount: products.length,
       blocked,
       blockedCount: blocked.length,
     };
   } catch (err) {
-    await session.abortTransaction();
     throw err;
-  } finally {
-    session.endSession();
   }
 }

@@ -16,12 +16,7 @@ const purchaseOrderSchema = new mongoose.Schema(
     items: [
       {
         // product: {
-        //   type: mongoose.Schema.Types.ObjectId,
-        //   ref: "Product",
-        //   required: false,
-        // },
-        title: { type: String, required: false },
-        asin: { type: String, required: false },
+        product: { type: Object, required: false },
         orderedQty: { type: Number, required: true },
         receivedQty: { type: Number, default: 0}, // ✅ Kitni qty receive hui
         purchasePrice: { type: Number, required: true },

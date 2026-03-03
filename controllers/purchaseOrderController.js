@@ -12,7 +12,6 @@ const getNextOrderNo = async () => {
 export const createPurchaseOrder = async (req, res) => {
   try {
     const { vendor, items, expectedDelivery, notes } = req.body;
-    
 
     if (!vendor) {
       return res.status(400).json({ message: "Vendor is required" });
@@ -32,8 +31,7 @@ export const createPurchaseOrder = async (req, res) => {
       orderNo,
       vendor,
       items: items.map((item) => ({
-        title: item.title, // frontend se productId ko product me bhejna hoga
-        asin: item.asin,
+        product: item.product,
         receivedQty: item.receivedQty,
         orderedQty: item.orderedQty,
         purchasePrice: item.purchasePrice,
@@ -51,31 +49,6 @@ export const createPurchaseOrder = async (req, res) => {
     res.status(400).json({ message: err.message });
   }
 };
-// ✅ Create
-// export const createPurchaseOrder = async (req, res) => {
-//   try {
-//     const { orderNo, vendor, items, expectedDelivery, notes } = req.body;
-
-//     // Total calculate
-//     const totalAmount = items.reduce((acc, item) => acc + item.total, 0);
-
-//     const purchaseOrder = new PurchaseOrder({
-//       orderNo,
-//       vendor,
-//       items,
-//       expectedDelivery,
-//       notes,
-//       totalAmount,
-//     });
-
-//     await purchaseOrder.save();
-//     res.status(201).json(purchaseOrder);
-//   } catch (err) {
-//     res.status(400).json({ message: err.message });
-//   }
-// };
-
-// ✅ Get All
 
 export const getPurchaseOrders = async (req, res) => {
   try {
@@ -93,7 +66,7 @@ export const getPurchaseOrderById = async (req, res) => {
   try {
     const order = await PurchaseOrder.findById(req.params.id)
       .populate("vendor", "name companyName")
-      .populate("items.product", "title sku");
+      // .populate("items.product", "title sku");
     if (!order) return res.status(404).json({ message: "Order not found" });
     res.json(order);
   } catch (err) {

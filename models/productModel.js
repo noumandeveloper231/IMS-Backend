@@ -10,6 +10,7 @@ const productSchema = new mongoose.Schema(
     quantity: { type: Number, required: true, default: 0 },
     totalCost: { type: Number, default: 0 }, // For weighted avg when no batches
     description: { type: String, required: false },
+    specification: { type: String, required: false },
     modelno: { type: String, required: false },
     category: {
       type: mongoose.Schema.Types.ObjectId,
@@ -40,6 +41,10 @@ const productSchema = new mongoose.Schema(
       type: String,
     },
     qrCode: { type: String },
+    competitors: {
+      type: Object,
+      required: false,
+    },
     // ✅ new field
     returnable: {
       type: Boolean,

@@ -70,6 +70,11 @@ export const createProduct = async (req, res) => {
       salePrice,
       quantity,
       description,
+      specification,
+      amazonUrl,
+      noonUrl,
+      sharafdgUrl,
+      carrefourUrl,
       modelno,
       category,
       subcategory,
@@ -129,6 +134,13 @@ export const createProduct = async (req, res) => {
     const image = uploadedImages[0] || null;
 
     const refundableVal = refundable === "false" || refundable === false ? false : true;
+    const competitors = {
+      Amazon: amazonUrl || "",
+      Noon: noonUrl || "",
+      SharafDG: sharafdgUrl || "",
+      Carrefour: carrefourUrl || "",
+    };
+
     const product = new Product({
       title,
       sku,
@@ -137,6 +149,7 @@ export const createProduct = async (req, res) => {
       salePrice,
       quantity,
       description,
+      specification,
       modelno,
       category: category || null,
       subcategory: subcategory || null,
@@ -147,6 +160,7 @@ export const createProduct = async (req, res) => {
       qrCode,
       image,
       images: uploadedImages,
+      competitors,
     });
 
     await product.save();
@@ -232,6 +246,7 @@ export const bulkCreateProducts = async (req, res) => {
         salePrice: item.salePrice,
         quantity: item.quantity || 0,
         description: item.description,
+        specification: item.specification,
         modelno: item.modelno,
         category: categoryId,
         subcategory: subcategoryId,
@@ -365,6 +380,11 @@ export const updateProduct = async (req, res) => {
       salePrice,
       quantity,
       description,
+      specification,
+      amazonUrl,
+      noonUrl,
+      sharafdgUrl,
+      carrefourUrl,
       modelno,
       category,
       subcategory,
@@ -436,6 +456,13 @@ export const updateProduct = async (req, res) => {
     }
 
     const refundableVal = refundable === "false" || refundable === false ? false : true;
+    const competitors = {
+      Amazon: amazonUrl || currentProduct.competitors?.Amazon || "",
+      Noon: noonUrl || currentProduct.competitors?.Noon || "",
+      SharafDG: sharafdgUrl || currentProduct.competitors?.SharafDG || "",
+      Carrefour: carrefourUrl || currentProduct.competitors?.Carrefour || "",
+    };
+
     const updateData = {
       title,
       sku,
@@ -444,12 +471,14 @@ export const updateProduct = async (req, res) => {
       salePrice,
       quantity,
       description,
+      specification,
       modelno,
       category: category || null,
       subcategory: subcategory || null,
       brand,
       condition,
       refundable: refundableVal,
+      competitors,
       ...(qrCode && { qrCode }),
     };
 

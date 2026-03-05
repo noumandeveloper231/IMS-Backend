@@ -1,6 +1,14 @@
 // controllers/subcategoryController.js
+import mongoose from "mongoose";
 import Subcategory from "../models/subcategoryModel.js";
 import Category from "../models/categoryModel.js";
+import Product from "../models/productModel.js";
+import { deleteFromBlobIfUrl } from "../utils/blob.js";
+import {
+  checkBulkDependencies as checkBulkDependenciesService,
+  bulkDeletePreview as bulkDeletePreviewService,
+  executeBulkDelete as executeBulkDeleteService,
+} from "../services/subcategoryBulkService.js";
 
 // Create subcategory
 export const createSubcategory = async (req, res) => {
@@ -223,13 +231,41 @@ export const updateSubcategory = async (req, res) => {
 export const deleteSubcategory = async (req, res) => {
   try {
     const { id } = req.params;
-    const subcategory = await Subcategory.findByIdAndDelete(id);
+    const cascade = req.query.cascade === "true";
+
+    const subcategory = await Subcategory.findById(id);
     if (!subcategory) {
       return res.status(404).json({
         success: false,
         message: "Subcategory not found",
       });
     }
+
+    if (cascade) {
+      const products = await Product.find({ subcategory: id });
+      for (const product of products) {
+        if (Array.isArray(product.images)) {
+          for (const img of product.images) {
+            if (img) await deleteFromBlobIfUrl(img);
+          }
+        }
+        if (product.image) await deleteFromBlobIfUrl(product.image);
+        await Product.findByIdAndDelete(product._id);
+      }
+    } else {
+      const productsCount = await Product.countDocuments({ subcategory: id });
+      if (productsCount > 0) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "Subcategory has linked products. Use cascade or transfer.",
+          productsCount,
+        });
+      }
+    }
+
+    await Subcategory.findByIdAndDelete(id);
+
     res.status(200).json({
       success: true,
       message: "Subcategory deleted successfully",
@@ -242,3 +278,156 @@ export const deleteSubcategory = async (req, res) => {
     });
   }
 };
+
+export const getSubcategoryDependencies = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const subcategory = await Subcategory.findById(id);
+    if (!subcategory) {
+      return res.status(404).json({
+        success: false,
+        message: "Subcategory not found",
+      });
+    }
+    const productsCount = await Product.countDocuments({ subcategory: id });
+    res.status(200).json({
+      success: true,
+      productsCount: productsCount || 0,
+      hasDependencies: (productsCount || 0) > 0,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to get subcategory dependencies",
+      error: error.message,
+    });
+  }
+};
+
+export const transferSubcategoryDependencies = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { transferToSubcategoryId } = req.body;
+
+    if (!transferToSubcategoryId) {
+      return res.status(400).json({
+        success: false,
+        message: "transferToSubcategoryId is required",
+      });
+    }
+
+    if (
+      !mongoose.Types.ObjectId.isValid(id) ||
+      !mongoose.Types.ObjectId.isValid(transferToSubcategoryId)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid subcategory ID",
+      });
+    }
+
+    const subcategory = await Subcategory.findById(id);
+    if (!subcategory) {
+      return res.status(404).json({
+        success: false,
+        message: "Subcategory not found",
+      });
+    }
+
+    const targetSubcategory = await Subcategory.findById(transferToSubcategoryId);
+    if (!targetSubcategory || targetSubcategory._id.toString() === id) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Target subcategory not found or cannot transfer to same subcategory",
+      });
+    }
+
+    const sourceId = new mongoose.Types.ObjectId(id);
+    const targetId = new mongoose.Types.ObjectId(transferToSubcategoryId);
+
+    await Product.updateMany(
+      { subcategory: sourceId },
+      { $set: { subcategory: targetId } },
+    );
+
+    await Subcategory.findByIdAndDelete(id);
+
+    res.status(200).json({
+      success: true,
+      message: "Dependencies transferred and subcategory deleted successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to transfer dependencies " + error.message,
+      error: error.message,
+    });
+  }
+};
+
+export const checkBulkDependencies = async (req, res) => {
+  try {
+    const { subcategoryIds } = req.body;
+    const result = await checkBulkDependenciesService(subcategoryIds);
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    const status =
+      error.message?.includes("not found") || error.message?.includes("Invalid")
+        ? 400
+        : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Failed to check bulk dependencies",
+      error: error.message,
+    });
+  }
+};
+
+export const bulkDeletePreview = async (req, res) => {
+  try {
+    const { subcategoryIds, resolutionPlan } = req.body;
+    const result = await bulkDeletePreviewService(subcategoryIds, resolutionPlan);
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    const status =
+      error.message?.includes("not found") || error.message?.includes("Invalid")
+        ? 400
+        : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Bulk delete preview failed",
+      error: error.message,
+    });
+  }
+};
+
+export const bulkDelete = async (req, res) => {
+  try {
+    const { subcategoryIds, resolutionPlan } = req.body;
+    const result = await executeBulkDeleteService(subcategoryIds, resolutionPlan);
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    const status =
+      error.message?.includes("not found") ||
+      error.message?.includes("Invalid") ||
+      error.message?.includes("cannot be in the delete list")
+        ? 400
+        : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Bulk delete failed",
+      error: error.message,
+    });
+  }
+};
+

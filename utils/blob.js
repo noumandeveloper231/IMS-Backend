@@ -1,6 +1,31 @@
 import { v2 as cloudinary } from "cloudinary";
+import sharp from "sharp";
 
 let cloudinaryConfigured = false;
+
+// Image optimization: max dimension (longest side), WebP quality
+const MAX_IMAGE_DIMENSION = 2560;
+const WEBP_QUALITY = 82;
+
+/**
+ * Optimize image buffer: resize, strip metadata, normalize orientation, convert to WebP.
+ * Returns optimized buffer or null on failure (caller should use original buffer).
+ */
+async function optimizeImageBuffer(buffer) {
+  if (!buffer || !Buffer.isBuffer(buffer)) return null;
+  try {
+    return await sharp(buffer)
+      .rotate() // auto-orient from EXIF
+      .resize(MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION, {
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .webp({ quality: WEBP_QUALITY })
+      .toBuffer();
+  } catch {
+    return null;
+  }
+}
 
 function ensureCloudinaryConfigured() {
   if (cloudinaryConfigured) return;
@@ -93,6 +118,12 @@ export const uploadToBlob = async (file, folder) => {
   }).catch(() => {});
   // #endregion agent log
 
+  let bufferToUpload = file.buffer;
+  if (resourceType === "image") {
+    const optimized = await optimizeImageBuffer(file.buffer);
+    if (optimized) bufferToUpload = optimized;
+  }
+
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
@@ -107,7 +138,7 @@ export const uploadToBlob = async (file, folder) => {
         resolve(result?.secure_url ?? null);
       }
     );
-    uploadStream.end(file.buffer);
+    uploadStream.end(bufferToUpload);
   });
 };
 

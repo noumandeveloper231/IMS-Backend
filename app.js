@@ -23,6 +23,8 @@ import countRoutes from "./routes/countRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import customerRoutes from "./routes/customerRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
+import imageRoutes from "./routes/imageRoutes.js";
+import settingRoutes from "./routes/settingRoutes.js";
 
 dotenv.config();
 
@@ -73,6 +75,8 @@ app.use("/api/bills", billRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api/images", imageRoutes);
+app.use("/api/settings", settingRoutes);
 app.use("/api", countRoutes);
 
 app.use(errorHandler);

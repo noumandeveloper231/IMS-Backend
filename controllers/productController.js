@@ -76,6 +76,7 @@ export const createProduct = async (req, res) => {
       brand,
       condition,
       returnable,
+      refundable,
     } = req.body;
 
     // 🔍 ASIN check
@@ -127,6 +128,7 @@ export const createProduct = async (req, res) => {
 
     const image = uploadedImages[0] || null;
 
+    const refundableVal = refundable === "false" || refundable === false ? false : true;
     const product = new Product({
       title,
       sku,
@@ -141,6 +143,7 @@ export const createProduct = async (req, res) => {
       brand,
       condition,
       returnable: returnable ?? true,
+      refundable: refundableVal,
       qrCode,
       image,
       images: uploadedImages,
@@ -220,6 +223,7 @@ export const bulkCreateProducts = async (req, res) => {
 
       if (!brandId || !conditionId) continue;
 
+      const refundableVal = item.refundable === "false" || item.refundable === false ? false : true;
       newProducts.push({
         title: item.title,
         sku: item.sku,
@@ -233,6 +237,7 @@ export const bulkCreateProducts = async (req, res) => {
         subcategory: subcategoryId,
         brand: brandId,
         condition: conditionId,
+        refundable: refundableVal,
         qrCode,
         image: item.image || null,
         images: item.image ? [item.image] : [],
@@ -365,6 +370,7 @@ export const updateProduct = async (req, res) => {
       subcategory,
       brand,
       condition,
+      refundable,
     } = req.body;
 
     // 🔍 Duplicate check: SKU ya ModelNo already exist karta hai?
@@ -429,6 +435,7 @@ export const updateProduct = async (req, res) => {
       qrCode = await QRCode.toDataURL(sku);
     }
 
+    const refundableVal = refundable === "false" || refundable === false ? false : true;
     const updateData = {
       title,
       sku,
@@ -442,6 +449,7 @@ export const updateProduct = async (req, res) => {
       subcategory: subcategory || null,
       brand,
       condition,
+      refundable: refundableVal,
       ...(qrCode && { qrCode }),
     };
 

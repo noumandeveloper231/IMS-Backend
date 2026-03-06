@@ -14,6 +14,53 @@ import {
   executeBulkDelete as executeBulkDeleteService,
 } from "../services/productBulkService.js";
 
+// Normalize competitors coming from frontend form (array/JSON/object)
+// into the object shape stored in MongoDB.
+const normalizeCompetitors = (rawCompetitors, fallbackUrls = {}) => {
+  const result = {};
+
+  if (Array.isArray(rawCompetitors)) {
+    rawCompetitors.forEach((c) => {
+      if (c && typeof c === "object" && c.label && c.url) {
+        result[c.label] = c.url;
+      }
+    });
+  } else if (typeof rawCompetitors === "string") {
+    try {
+      const parsed = JSON.parse(rawCompetitors);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((c) => {
+          if (c && typeof c === "object" && c.label && c.url) {
+            result[c.label] = c.url;
+          }
+        });
+      } else if (parsed && typeof parsed === "object") {
+        Object.entries(parsed).forEach(([key, value]) => {
+          if (typeof value === "string" && value) {
+            result[key] = value;
+          }
+        });
+      }
+    } catch {
+      // ignore JSON parse errors, fall back to URLs below
+    }
+  } else if (rawCompetitors && typeof rawCompetitors === "object") {
+    Object.entries(rawCompetitors).forEach(([key, value]) => {
+      if (typeof value === "string" && value) {
+        result[key] = value;
+      }
+    });
+  }
+
+  const { amazonUrl, noonUrl, sharafdgUrl, carrefourUrl } = fallbackUrls;
+  if (amazonUrl) result.Amazon = amazonUrl;
+  if (noonUrl) result.Noon = noonUrl;
+  if (sharafdgUrl) result.SharafDG = sharafdgUrl;
+  if (carrefourUrl) result.Carrefour = carrefourUrl;
+
+  return result;
+};
+
 // ✅ Upload product image only (returns URL for use in bulk import etc.)
 export const uploadProductImage = async (req, res) => {
   try {
@@ -71,10 +118,6 @@ export const createProduct = async (req, res) => {
       quantity,
       description,
       specification,
-      amazonUrl,
-      noonUrl,
-      sharafdgUrl,
-      carrefourUrl,
       modelno,
       category,
       subcategory,
@@ -82,17 +125,15 @@ export const createProduct = async (req, res) => {
       condition,
       returnable,
       refundable,
+      competitors,
+      amazonUrl,
+      noonUrl,
+      sharafdgUrl,
+      carrefourUrl,
     } = req.body;
 
-    // 🔍 ASIN check
-    // const asinExists = await Product.findOne({ asin });
-    // if (asinExists) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "❌ ASIN already exists",
-    //   });
-    // }
-    // 🔍 SKU check
+    console.log("req.body in createProduct", req.body);
+
     const skuExists = await Product.findOne({ sku });
     if (skuExists) {
       return res.status(400).json({
@@ -100,15 +141,6 @@ export const createProduct = async (req, res) => {
         message: "❌ SKU already exists",
       });
     }
-
-    // 🔍 ModelNo check
-    // const modelExists = await Product.findOne({ modelno });
-    // if (modelExists) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "❌ Model Number already exists",
-    //   });
-    // }
 
     // ✅ SKU se QR generate karna
     const qrCode = await QRCode.toDataURL(sku);
@@ -133,13 +165,15 @@ export const createProduct = async (req, res) => {
 
     const image = uploadedImages[0] || null;
 
-    const refundableVal = refundable === "false" || refundable === false ? false : true;
-    const competitors = {
-      Amazon: amazonUrl || "",
-      Noon: noonUrl || "",
-      SharafDG: sharafdgUrl || "",
-      Carrefour: carrefourUrl || "",
-    };
+    const refundableVal =
+      refundable === "false" || refundable === false ? false : true;
+
+    const competitorsObj = normalizeCompetitors(competitors, {
+      amazonUrl,
+      noonUrl,
+      sharafdgUrl,
+      carrefourUrl,
+    });
 
     const product = new Product({
       title,
@@ -160,7 +194,7 @@ export const createProduct = async (req, res) => {
       qrCode,
       image,
       images: uploadedImages,
-      competitors,
+      competitors: competitorsObj,
     });
 
     await product.save();
@@ -237,7 +271,16 @@ export const bulkCreateProducts = async (req, res) => {
 
       if (!brandId || !conditionId) continue;
 
-      const refundableVal = item.refundable === "false" || item.refundable === false ? false : true;
+      const refundableVal =
+        item.refundable === "false" || item.refundable === false ? false : true;
+
+      // ✅ Support multiple images coming from bulk import
+      const imagesArray = Array.isArray(item.images)
+        ? item.images.filter((img) => typeof img === "string" && img)
+        : item.image
+        ? [item.image]
+        : [];
+
       newProducts.push({
         title: item.title,
         sku: item.sku,
@@ -254,8 +297,8 @@ export const bulkCreateProducts = async (req, res) => {
         condition: conditionId,
         refundable: refundableVal,
         qrCode,
-        image: item.image || null,
-        images: item.image ? [item.image] : [],
+        image: imagesArray[0] || null,
+        images: imagesArray,
       });
     }
 
@@ -391,12 +434,16 @@ export const updateProduct = async (req, res) => {
       brand,
       condition,
       refundable,
+      competitors,
+      existingImages,
     } = req.body;
+
+    console.log("req.body in updateProduct", req.body);
 
     // 🔍 Duplicate check: SKU ya ModelNo already exist karta hai?
     const existingProduct = await Product.findOne({
       $or: [{ sku }],
-      _id: { $ne: id }, // 👈 apne current product ko exclude karna
+      _id: { $ne: id },
     });
 
     if (existingProduct) {
@@ -406,7 +453,7 @@ export const updateProduct = async (req, res) => {
       });
     }
 
-    // 🔍 Pehle current product fetch kar lein (purani image delete ke liye)
+    // 🔍 Pehle current product fetch kar lein (purani image delete/update ke liye)
     const currentProduct = await Product.findById(id);
     if (!currentProduct) {
       return res
@@ -414,8 +461,25 @@ export const updateProduct = async (req, res) => {
         .json({ success: false, message: "Product not found ❌" });
     }
 
+    // ✅ existingImages (order & which ones to keep) ko parse karein (agar frontend se aaye)
+    let hasExistingImagesField = false;
+    let existingImagesOrder = [];
+    if (typeof existingImages !== "undefined") {
+      hasExistingImagesField = true;
+      try {
+        const parsed =
+          typeof existingImages === "string" ? JSON.parse(existingImages) : existingImages;
+        if (Array.isArray(parsed)) {
+          existingImagesOrder = parsed.filter((img) => typeof img === "string" && img);
+        }
+      } catch (e) {
+        console.error("Failed to parse existingImages in updateProduct:", e?.message || e);
+        existingImagesOrder = [];
+      }
+    }
+
     // ✅ Agar new image(s) upload hui hain
-    let uploadedImages;
+    let uploadedImages = [];
     if (Array.isArray(req.files) && req.files.length > 0) {
       const imageFiles = req.files.filter(
         (file) => file.fieldname === "images" || file.fieldname === "image"
@@ -424,28 +488,11 @@ export const updateProduct = async (req, res) => {
         uploadedImages = await Promise.all(
           imageFiles.map((file) => uploadToBlob(file, "products"))
         );
-
-        // Purani Blob images delete karo (sirf URL hone par)
-        if (Array.isArray(currentProduct.images)) {
-          for (const img of currentProduct.images) {
-            if (img) {
-              await deleteFromBlobIfUrl(img);
-            }
-          }
-        }
-        if (currentProduct.image && (!currentProduct.images || !currentProduct.images.length)) {
-          await deleteFromBlobIfUrl(currentProduct.image);
-        }
       }
     } else if (req.file) {
       const singleImage = await uploadToBlob(req.file, "products");
       if (singleImage) {
         uploadedImages = [singleImage];
-      }
-
-      // Purani Blob image delete karo (sirf URL hone par)
-      if (currentProduct.image) {
-        await deleteFromBlobIfUrl(currentProduct.image);
       }
     }
 
@@ -455,13 +502,51 @@ export const updateProduct = async (req, res) => {
       qrCode = await QRCode.toDataURL(sku);
     }
 
-    const refundableVal = refundable === "false" || refundable === false ? false : true;
-    const competitors = {
-      Amazon: amazonUrl || currentProduct.competitors?.Amazon || "",
-      Noon: noonUrl || currentProduct.competitors?.Noon || "",
-      SharafDG: sharafdgUrl || currentProduct.competitors?.SharafDG || "",
-      Carrefour: carrefourUrl || currentProduct.competitors?.Carrefour || "",
-    };
+    const refundableVal =
+      refundable === "false" || refundable === false ? false : true;
+
+    const competitorsObj = normalizeCompetitors(competitors, {
+      amazonUrl: amazonUrl || currentProduct.competitors?.Amazon,
+      noonUrl: noonUrl || currentProduct.competitors?.Noon,
+      sharafdgUrl: sharafdgUrl || currentProduct.competitors?.SharafDG,
+      carrefourUrl: carrefourUrl || currentProduct.competitors?.Carrefour,
+    });
+
+    // 🔁 Final images array tayar karein (order + additions)
+    let finalImages;
+    if (hasExistingImagesField) {
+      // Frontend ne explicitly bataya hai kaun si purani images rakhni hain (aur kis order me)
+      finalImages = [...existingImagesOrder];
+    } else if (Array.isArray(currentProduct.images) && currentProduct.images.length) {
+      finalImages = [...currentProduct.images];
+    } else if (currentProduct.image) {
+      finalImages = [currentProduct.image];
+    } else {
+      finalImages = [];
+    }
+
+    if (uploadedImages && uploadedImages.length) {
+      // Nayi images ko end me append karein (UI me order support simple rahega)
+      finalImages = [...finalImages, ...uploadedImages];
+    }
+
+    // ❌ Sirf un purani images ko delete karein jo ab final list me nahi hain
+    if (hasExistingImagesField) {
+      const originalImages = [
+        ...(Array.isArray(currentProduct.images) ? currentProduct.images : []),
+      ];
+      if (currentProduct.image && !originalImages.includes(currentProduct.image)) {
+        originalImages.push(currentProduct.image);
+      }
+
+      const imagesToDelete = originalImages.filter(
+        (img) => img && !finalImages.includes(img)
+      );
+
+      for (const img of imagesToDelete) {
+        await deleteFromBlobIfUrl(img);
+      }
+    }
 
     const updateData = {
       title,
@@ -478,14 +563,11 @@ export const updateProduct = async (req, res) => {
       brand,
       condition,
       refundable: refundableVal,
-      competitors,
+      competitors: competitorsObj,
       ...(qrCode && { qrCode }),
     };
-
-    if (uploadedImages && uploadedImages.length) {
-      updateData.images = uploadedImages;
-      updateData.image = uploadedImages[0];
-    }
+    updateData.images = finalImages;
+    updateData.image = finalImages[0] || null;
 
     const product = await Product.findByIdAndUpdate(id, updateData, {
       new: true,

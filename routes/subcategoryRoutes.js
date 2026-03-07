@@ -20,9 +20,9 @@ const router = express.Router();
 
 router.post("/create", protect, allow("subcategory.manage"), createSubcategory);
 router.post("/createbulk", protect, allow("subcategory.manage"), createBulkSubcategories);
-router.get("/getall", protect, allow("subcategory.manage"), getSubcategories);
-router.get("/getbycategory/:categoryId", protect, allow("subcategory.manage"), getSubcategoriesByCategory);
-router.get("/getone/:id", protect, allow("subcategory.manage"), getSubcategoryById);
+router.get("/getall", protect, allow("subcategory.manage", "product.read"), getSubcategories);
+router.get("/getbycategory/:categoryId", protect, allow("subcategory.manage", "product.read"), getSubcategoriesByCategory);
+router.get("/getone/:id", protect, allow("subcategory.manage", "product.read"), getSubcategoryById);
 router.get("/dependencies/:id", protect, allow("subcategory.manage"), getSubcategoryDependencies);
 router.post("/transfer/:id", protect, allow("subcategory.manage"), transferSubcategoryDependencies);
 router.put("/update/:id", protect, allow("subcategory.manage"), updateSubcategory);

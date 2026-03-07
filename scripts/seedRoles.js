@@ -33,6 +33,9 @@ const ROLES = [
       PERMISSIONS.EMPLOYEE_MANAGE,
       PERMISSIONS.CUSTOMER_MANAGE,
       PERMISSIONS.DEVICE_MANAGE,
+      PERMISSIONS.USER_READ,
+      PERMISSIONS.USER_CREATE,
+      PERMISSIONS.USER_UPDATE,
     ],
   },
   {
@@ -57,7 +60,15 @@ const ROLES = [
   },
   {
     name: "viewer",
-    permissions: [PERMISSIONS.REPORT_READ, PERMISSIONS.ORDER_READ],
+    permissions: [PERMISSIONS.REPORT_READ, PERMISSIONS.ORDER_READ, PERMISSIONS.USER_READ],
+  },
+  {
+    name: "user_viewer",
+    permissions: [PERMISSIONS.USER_READ],
+  },
+  {
+    name: "user_editor",
+    permissions: [PERMISSIONS.USER_READ, PERMISSIONS.USER_CREATE, PERMISSIONS.USER_UPDATE],
   },
 ];
 

@@ -25,9 +25,9 @@ router.post("/create", protect, allow("condition.manage"), upload.single("image"
 router.post("/upload-image", protect, allow("condition.manage"), upload.single("image"), uploadConditionImage);
 router.post("/delete-image-by-url", protect, allow("condition.manage"), deleteConditionImageByUrl);
 router.post("/createbulk", protect, allow("condition.manage"), createBulkConditions);
-router.get("/getall", protect, allow("condition.manage"), getConditions);
-router.get("/getallcount", protect, allow("condition.manage"), getConditionsCount);
-router.get("/getone/:id", protect, allow("condition.manage"), getConditionById);
+router.get("/getall", protect, allow("condition.manage", "product.read"), getConditions);
+router.get("/getallcount", protect, allow("condition.manage", "product.read"), getConditionsCount);
+router.get("/getone/:id", protect, allow("condition.manage", "product.read"), getConditionById);
 router.get("/dependencies/:id", protect, allow("condition.manage"), getConditionDependencies);
 router.post("/transfer/:id", protect, allow("condition.manage"), transferConditionDependencies);
 router.get("/transfer/:id", (req, res) =>

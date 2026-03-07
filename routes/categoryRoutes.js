@@ -25,9 +25,9 @@ router.post("/create", protect, allow("category.manage"), uploadCategory.single(
 router.post("/upload-image", protect, allow("category.manage"), uploadCategory.single("image"), uploadCategoryImage);
 router.post("/delete-image-by-url", protect, allow("category.manage"), deleteCategoryImageByUrl);
 router.post("/createbulk", protect, allow("category.manage"), createBulkCategories);
-router.get("/getall", protect, allow("category.manage"), getCategories);
-router.get("/getallcount", protect, allow("category.manage"), getCategoriesCount);
-router.get("/getone/:id", protect, allow("category.manage"), getCategoryById);
+router.get("/getall", protect, allow("category.manage", "product.read"), getCategories);
+router.get("/getallcount", protect, allow("category.manage", "product.read"), getCategoriesCount);
+router.get("/getone/:id", protect, allow("category.manage", "product.read"), getCategoryById);
 router.get("/dependencies/:id", protect, allow("category.manage"), getCategoryDependencies);
 router.post("/transfer/:id", protect, allow("category.manage"), transferCategoryDependencies);
 router.get("/transfer/:id", (req, res) =>

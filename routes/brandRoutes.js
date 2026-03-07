@@ -25,9 +25,9 @@ router.post("/create", protect, allow("brand.manage"), upload.single("image"), c
 router.post("/upload-image", protect, allow("brand.manage"), upload.single("image"), uploadBrandImage);
 router.post("/delete-image-by-url", protect, allow("brand.manage"), deleteBrandImageByUrl);
 router.post("/createbulk", protect, allow("brand.manage"), createBulkBrands);
-router.get("/getall", protect, allow("brand.manage"), getBrands);
-router.get("/getallcount", protect, allow("brand.manage"), getBrandsCount);
-router.get("/getone/:id", protect, allow("brand.manage"), getBrandById);
+router.get("/getall", protect, allow("brand.manage", "product.read"), getBrands);
+router.get("/getallcount", protect, allow("brand.manage", "product.read"), getBrandsCount);
+router.get("/getone/:id", protect, allow("brand.manage", "product.read"), getBrandById);
 router.get("/dependencies/:id", protect, allow("brand.manage"), getBrandDependencies);
 router.post("/transfer/:id", protect, allow("brand.manage"), transferBrandDependencies);
 router.get("/transfer/:id", (req, res) =>

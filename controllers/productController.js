@@ -416,7 +416,7 @@ export const getProducts = async (req, res) => {
     const withImageUrls = products.map((p) => {
       const doc = p.toObject ? p.toObject() : p;
       doc.image = doc.thumbnail?.url || doc.image;
-      doc.images = (doc.gallery && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];
+      doc.images = (doc.gallery && doc.gallery.length > 0 && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];
       return doc;
     });
     res.status(200).json({
@@ -448,7 +448,7 @@ export const getProductById = async (req, res) => {
 
     const doc = product.toObject ? product.toObject() : product;
     doc.image = doc.thumbnail?.url || doc.image;
-    doc.images = (doc.gallery && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];
+    doc.images = (doc.gallery && doc.gallery.length > 0 && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];
     res.status(200).json({ success: true, product: doc });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -641,11 +641,15 @@ export const updateProduct = async (req, res) => {
     const product = await Product.findByIdAndUpdate(id, updateData, {
       new: true,
     })
+      .populate("category")
+      .populate("subcategory")
+      .populate("brand")
+      .populate("condition")
       .populate("thumbnail")
       .populate("gallery");
     const doc = product.toObject ? product.toObject() : product;
     doc.image = doc.thumbnail?.url || doc.image;
-    doc.images = (doc.gallery && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];
+    doc.images = (doc.gallery && doc.gallery.length > 0 && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];
 
     res.status(200).json({
       success: true,
@@ -682,7 +686,7 @@ export const getProductsByFilter = async (req, res) => {
     const withImageUrls = products.map((p) => {
       const doc = p.toObject ? p.toObject() : p;
       doc.image = doc.thumbnail?.url || doc.image;
-      doc.images = (doc.gallery && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];
+      doc.images = (doc.gallery && doc.gallery.length > 0 && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];
       return doc;
     });
     res.status(200).json({ success: true, products: withImageUrls });
@@ -711,7 +715,7 @@ export const getProductsByFilterStock = async (req, res) => {
     const withImageUrls = products.map((p) => {
       const doc = p.toObject ? p.toObject() : p;
       doc.image = doc.thumbnail?.url || doc.image;
-      doc.images = (doc.gallery && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];
+      doc.images = (doc.gallery && doc.gallery.length > 0 && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];
       return doc;
     });
     res.json({ success: true, products: withImageUrls });

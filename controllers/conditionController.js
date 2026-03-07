@@ -56,7 +56,23 @@ export const deleteConditionImageByUrl = async (req, res) => {
 // ✅ Create condition
 export const createCondition = async (req, res) => {
   try {
-    let { name, image: imageId } = req.body || {};
+    let { name, image: imageId, description, tags, exampleProductImages } = req.body || {};
+    if (typeof tags === "string") {
+      try {
+        tags = JSON.parse(tags);
+      } catch {
+        tags = [];
+      }
+    }
+    if (typeof exampleProductImages === "string") {
+      try {
+        exampleProductImages = JSON.parse(exampleProductImages);
+      } catch {
+        exampleProductImages = [];
+      }
+    }
+    if (!Array.isArray(tags)) tags = [];
+    if (!Array.isArray(exampleProductImages)) exampleProductImages = [];
     if (typeof imageId === "string") imageId = imageId.trim();
     if (Array.isArray(imageId)) imageId = imageId[0];
     let imageRef = null;
@@ -79,6 +95,9 @@ export const createCondition = async (req, res) => {
       name: name?.trim(),
       imageRef,
       image: imageUrl,
+      description: description || null,
+      tags: tags || [],
+      exampleProductImages: exampleProductImages || [],
     });
     await newCondition.save();
 
@@ -350,7 +369,23 @@ export const updateCondition = async (req, res) => {
   try {
     const { id } = req.params;
     const file = req.files && Array.isArray(req.files) ? req.files.find((f) => f.fieldname === "image") : req.file;
-    let { name, image: imageId } = req.body || {};
+    let { name, image: imageId, description, tags, exampleProductImages } = req.body || {};
+    if (typeof tags === "string") {
+      try {
+        tags = JSON.parse(tags);
+      } catch {
+        tags = [];
+      }
+    }
+    if (typeof exampleProductImages === "string") {
+      try {
+        exampleProductImages = JSON.parse(exampleProductImages);
+      } catch {
+        exampleProductImages = [];
+      }
+    }
+    if (!Array.isArray(tags)) tags = [];
+    if (!Array.isArray(exampleProductImages)) exampleProductImages = [];
     if (typeof imageId === "string") imageId = imageId.trim();
     if (Array.isArray(imageId)) imageId = imageId[0];
     const newImageUrl = file ? await uploadToBlob(file, "conditions") : null;
@@ -379,6 +414,9 @@ export const updateCondition = async (req, res) => {
     }
 
     condition.name = name?.trim();
+    if (description !== undefined) condition.description = description || null;
+    if (tags !== undefined) condition.tags = tags;
+    if (exampleProductImages !== undefined) condition.exampleProductImages = exampleProductImages;
     if (imageId !== undefined) {
       condition.imageRef = imageId && mongoose.Types.ObjectId.isValid(imageId) ? imageId : null;
       if (condition.imageRef && !newImageUrl) {

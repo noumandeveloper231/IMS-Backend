@@ -18,6 +18,18 @@ const conditionSchema = new mongoose.Schema(
       ref: "Media",
       default: null,
     },
+    description: {
+      type: String,
+      default: null,
+    },
+    tags: {
+      type: [String],
+      default: [],
+    },
+    exampleProductImages: {
+      type: [String],
+      default: [],
+    },
   },
   { timestamps: true }
 );

@@ -1,11 +1,8 @@
 /**
  * Category Bulk Operations Service
- * Enterprise-grade bulk dependency check, preview, and transactional delete.
- * Uses Mongoose transactions for all-or-nothing execution with rollback on failure.
- *
- * Note: Current implementation uses hard delete. To use soft delete (isDeleted),
- * replace delete operations with updateOne({ _id }, { $set: { isDeleted: true, deletedAt: new Date() } })
- * and ensure all queries filter by isDeleted: { $ne: true }.
+ * Bulk dependency check, preview, and delete.
+ * Runs without MongoDB transactions so it works on standalone MongoDB (single node).
+ * If a step fails midway, earlier deletes are not rolled back.
  */
 
 import mongoose from "mongoose";
@@ -203,8 +200,9 @@ export async function bulkDeletePreview(categoryIds, resolutionPlan) {
 }
 
 /**
- * Execute bulk delete inside a Mongoose transaction. Re-validates dependencies at execution time.
- * On any failure, entire transaction is rolled back.
+ * Execute bulk delete. Re-validates dependencies at execution time.
+ * Runs without a MongoDB transaction so it works on standalone MongoDB.
+ * If a step fails midway, earlier deletes are not rolled back.
  * POST /categories/bulk-delete
  * Body: { categoryIds: string[], resolutionPlan: { id, action, transferTo? }[] }
  */
@@ -221,103 +219,75 @@ export async function executeBulkDelete(categoryIds, resolutionPlan) {
     ])
   );
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  const deleted = [];
 
-  try {
-    const deleted = [];
+  for (const id of ids) {
+    const idStr = id.toString();
+    const plan = planMap.get(idStr);
+    if (!plan) throw new Error(`Missing resolution plan for category ${idStr}`);
 
-    for (const id of ids) {
-      const idStr = id.toString();
-      const plan = planMap.get(idStr);
-      if (!plan) {
-        await session.abortTransaction();
-        throw new Error(`Missing resolution plan for category ${idStr}`);
+    const category = await Category.findById(id);
+    if (!category) throw new Error(`Category not found: ${idStr}`);
+
+    const [subCount, productCount] = await Promise.all([
+      Subcategory.countDocuments({ category: id }),
+      Product.countDocuments({ category: id }),
+    ]);
+
+    if (plan.action === "delete") {
+      if (subCount > 0 || productCount > 0) {
+        throw new Error(
+          `Category "${category.name}" has dependencies (${subCount} subcategories, ${productCount} products). Re-check dependencies.`
+        );
       }
-
-      const category = await Category.findById(id).session(session);
-      if (!category) {
-        await session.abortTransaction();
-        throw new Error(`Category not found: ${idStr}`);
-      }
-
-      const [subCount, productCount] = await Promise.all([
-        Subcategory.countDocuments({ category: id }).session(session),
-        Product.countDocuments({ category: id }).session(session),
-      ]);
-
-      if (plan.action === "delete") {
-        if (subCount > 0 || productCount > 0) {
-          await session.abortTransaction();
-          throw new Error(
-            `Category "${category.name}" has dependencies (${subCount} subcategories, ${productCount} products). Re-check dependencies.`
-          );
-        }
-      }
-
-      if (plan.action === "transfer") {
-        const target = await Category.findById(plan.transferTo).session(session);
-        if (!target) {
-          await session.abortTransaction();
-          throw new Error(`Transfer target category not found: ${plan.transferTo}`);
-        }
-        if (plan.transferTo.equals(id)) {
-          await session.abortTransaction();
-          throw new Error("Cannot transfer to the same category");
-        }
-        if (categoryIdsSet.has(plan.transferTo.toString())) {
-          await session.abortTransaction();
-          throw new Error("Transfer target cannot be in the delete list");
-        }
-
-        await Subcategory.updateMany(
-          { category: id },
-          { $set: { category: plan.transferTo } }
-        ).session(session);
-
-        await Product.updateMany(
-          { category: id },
-          { $set: { category: plan.transferTo } }
-        ).session(session);
-      }
-
-      if (plan.action === "cascade") {
-        const subcategories = await Subcategory.find({ category: id })
-          .session(session)
-          .lean();
-        for (const sub of subcategories) {
-          await Subcategory.findByIdAndDelete(sub._id).session(session);
-        }
-        const products = await Product.find({ category: id }).session(session).lean();
-        for (const product of products) {
-          if (Array.isArray(product.images)) {
-            for (const img of product.images) {
-              if (img) await deleteFromBlobIfUrl(img);
-            }
-          }
-          if (product.image) await deleteFromBlobIfUrl(product.image);
-          await Product.findByIdAndDelete(product._id).session(session);
-        }
-      }
-
-      if (category.image) {
-        await deleteFromBlobIfUrl(category.image);
-      }
-      await Category.findByIdAndDelete(id).session(session);
-      deleted.push({ id: idStr, name: category.name });
     }
 
-    await session.commitTransaction();
+    if (plan.action === "transfer") {
+      const target = await Category.findById(plan.transferTo);
+      if (!target) throw new Error(`Transfer target category not found: ${plan.transferTo}`);
+      if (plan.transferTo.equals(id)) throw new Error("Cannot transfer to the same category");
+      if (categoryIdsSet.has(plan.transferTo.toString())) {
+        throw new Error("Transfer target cannot be in the delete list");
+      }
 
-    return {
-      success: true,
-      message: `Successfully deleted ${deleted.length} categories`,
-      deleted,
-    };
-  } catch (err) {
-    await session.abortTransaction();
-    throw err;
-  } finally {
-    session.endSession();
+      await Subcategory.updateMany(
+        { category: id },
+        { $set: { category: plan.transferTo } }
+      );
+
+      await Product.updateMany(
+        { category: id },
+        { $set: { category: plan.transferTo } }
+      );
+    }
+
+    if (plan.action === "cascade") {
+      const subcategories = await Subcategory.find({ category: id }).lean();
+      for (const sub of subcategories) {
+        await Subcategory.findByIdAndDelete(sub._id);
+      }
+      const products = await Product.find({ category: id }).lean();
+      for (const product of products) {
+        if (Array.isArray(product.images)) {
+          for (const img of product.images) {
+            if (img) await deleteFromBlobIfUrl(img);
+          }
+        }
+        if (product.image) await deleteFromBlobIfUrl(product.image);
+        await Product.findByIdAndDelete(product._id);
+      }
+    }
+
+    if (category.image) {
+      await deleteFromBlobIfUrl(category.image);
+    }
+    await Category.findByIdAndDelete(id);
+    deleted.push({ id: idStr, name: category.name });
   }
+
+  return {
+    success: true,
+    message: `Successfully deleted ${deleted.length} categories`,
+    deleted,
+  };
 }

@@ -56,6 +56,10 @@ const productSchema = new mongoose.Schema(
       type: Object,
       required: false,
     },
+    ourMarketplace: {
+      type: Object,
+      required: false,
+    },
     // ✅ new field
     returnable: {
       type: Boolean,

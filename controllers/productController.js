@@ -62,6 +62,42 @@ const normalizeCompetitors = (rawCompetitors, fallbackUrls = {}) => {
   return result;
 };
 
+// Normalize ourMarketplace (same shape as competitors: array of { label, url } → object label: url), max 6
+const normalizeOurMarketplace = (raw) => {
+  const result = {};
+  if (Array.isArray(raw)) {
+    raw.slice(0, 6).forEach((c) => {
+      if (c && typeof c === "object" && c.label && c.url) {
+        result[c.label] = c.url;
+      }
+    });
+  } else if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        parsed.slice(0, 6).forEach((c) => {
+          if (c && typeof c === "object" && c.label && c.url) {
+            result[c.label] = c.url;
+          }
+        });
+      } else if (parsed && typeof parsed === "object") {
+        Object.entries(parsed)
+          .slice(0, 6)
+          .forEach(([key, value]) => {
+            if (typeof value === "string" && value) result[key] = value;
+          });
+      }
+    } catch {}
+  } else if (raw && typeof raw === "object") {
+    Object.entries(raw)
+      .slice(0, 6)
+      .forEach(([key, value]) => {
+        if (typeof value === "string" && value) result[key] = value;
+      });
+  }
+  return result;
+};
+
 // ✅ Upload product image only (returns URL for use in bulk import etc.)
 export const uploadProductImage = async (req, res) => {
   try {
@@ -107,6 +143,38 @@ export const deleteProductImageByUrl = async (req, res) => {
   }
 };
 
+/** ASIN format: B0 + 8 alphanumeric (e.g. B0A4X7T2LQ). Ensures no duplicate in products. */
+const ASIN_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+function randomAsinSuffix(length = 8) {
+  let s = "";
+  for (let i = 0; i < length; i++) {
+    s += ASIN_CHARS.charAt(Math.floor(Math.random() * ASIN_CHARS.length));
+  }
+  return s;
+}
+
+export const generateAsin = async (req, res) => {
+  try {
+    const maxAttempts = 30;
+    for (let i = 0; i < maxAttempts; i++) {
+      const asin = "B0" + randomAsinSuffix(8);
+      const existing = await Product.findOne({ asin }).lean();
+      if (!existing) {
+        return res.status(200).json({ success: true, asin });
+      }
+    }
+    return res.status(500).json({
+      success: false,
+      message: "Could not generate a unique ASIN. Please try again.",
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error?.message || "Failed to generate ASIN",
+    });
+  }
+};
+
 // Create Product
 export const createProduct = async (req, res) => {
   try {
@@ -127,6 +195,7 @@ export const createProduct = async (req, res) => {
       returnable,
       refundable,
       competitors,
+      ourMarketplace,
       amazonUrl,
       noonUrl,
       sharafdgUrl,
@@ -196,6 +265,7 @@ export const createProduct = async (req, res) => {
       sharafdgUrl,
       carrefourUrl,
     });
+    const ourMarketplaceObj = normalizeOurMarketplace(ourMarketplace);
 
     const product = new Product({
       title,
@@ -219,6 +289,7 @@ export const createProduct = async (req, res) => {
       image,
       images: uploadedImages,
       competitors: competitorsObj,
+      ourMarketplace: ourMarketplaceObj,
     });
 
     await product.save();
@@ -479,6 +550,7 @@ export const updateProduct = async (req, res) => {
       condition,
       refundable,
       competitors,
+      ourMarketplace,
       existingImages,
       thumbnailId,
       galleryIds,
@@ -567,6 +639,7 @@ export const updateProduct = async (req, res) => {
       sharafdgUrl: sharafdgUrl || currentProduct.competitors?.SharafDG,
       carrefourUrl: carrefourUrl || currentProduct.competitors?.Carrefour,
     });
+    const ourMarketplaceObj = normalizeOurMarketplace(ourMarketplace);
 
     // 🔁 Final images array tayar karein (order + additions)
     let finalImages;
@@ -620,6 +693,7 @@ export const updateProduct = async (req, res) => {
       condition,
       refundable: refundableVal,
       competitors: competitorsObj,
+      ourMarketplace: ourMarketplaceObj,
       ...(qrCode && { qrCode }),
     };
     if (

@@ -6,10 +6,7 @@ import { PERMISSIONS, ALL_PERMISSIONS } from "../constants/permissions.js";
 dotenv.config();
 
 const ROLES = [
-  {
-    name: "admin",
-    permissions: ALL_PERMISSIONS,
-  },
+  { name: "admin", permissions: ALL_PERMISSIONS, isSystem: true },
   {
     name: "manager",
     permissions: [
@@ -37,6 +34,7 @@ const ROLES = [
       PERMISSIONS.USER_CREATE,
       PERMISSIONS.USER_UPDATE,
     ],
+    isSystem: true,
   },
   {
     name: "salesman",
@@ -45,6 +43,7 @@ const ROLES = [
       PERMISSIONS.ORDER_READ,
       PERMISSIONS.PRODUCT_READ,
     ],
+    isSystem: true,
   },
   {
     name: "inventory_manager",
@@ -57,18 +56,22 @@ const ROLES = [
       PERMISSIONS.BRAND_MANAGE,
       PERMISSIONS.CONDITION_MANAGE,
     ],
+    isSystem: true,
   },
   {
     name: "viewer",
     permissions: [PERMISSIONS.REPORT_READ, PERMISSIONS.ORDER_READ, PERMISSIONS.USER_READ],
+    isSystem: true,
   },
   {
     name: "user_viewer",
     permissions: [PERMISSIONS.USER_READ],
+    isSystem: false,
   },
   {
     name: "user_editor",
     permissions: [PERMISSIONS.USER_READ, PERMISSIONS.USER_CREATE, PERMISSIONS.USER_UPDATE],
+    isSystem: false,
   },
 ];
 
@@ -78,7 +81,7 @@ async function seedRoles() {
     for (const role of ROLES) {
       await Role.findOneAndUpdate(
         { name: role.name },
-        { $set: { permissions: role.permissions } },
+        { $set: { permissions: role.permissions, isSystem: role.isSystem !== false } },
         { upsert: true, new: true }
       );
       console.log(`✅ Role "${role.name}" seeded (${role.permissions.length} permissions)`);

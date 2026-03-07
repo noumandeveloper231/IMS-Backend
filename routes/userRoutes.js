@@ -26,6 +26,7 @@ const createValidation = [
 const updateValidation = [
   body("name").optional().trim().notEmpty().withMessage("Name cannot be empty"),
   body("email").optional().isEmail().withMessage("Valid email is required"),
+  body("password").optional().isLength({ min: 6 }).withMessage("Password must be at least 6 characters"),
   body("role").optional().isMongoId().withMessage("Valid role id"),
   body("employee").optional({ values: "null" }).isMongoId().withMessage("Valid employee id"),
   body("status").optional().isIn(["active", "inactive"]),

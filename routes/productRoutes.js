@@ -18,6 +18,7 @@ import {
   checkBulkDependencies,
   bulkDeletePreview,
   bulkDelete,
+  generateAsin,
 } from "../controllers/productController.js";
 import { getStockCounts } from "../controllers/countController.js";
 import { protect, allow } from "../middlewares/authMiddleware.js";
@@ -28,6 +29,7 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Public endpoints
+router.get("/generate-asin", protect, allow("product.create"), generateAsin);
 router.post("/create", protect, allow("product.create"), uploadProducts.any(), createProduct);
 router.post("/upload-image", protect, allow("product.create"), uploadProducts.single("image"), uploadProductImage);
 router.post("/delete-image-by-url", protect, allow("product.create"), deleteProductImageByUrl);

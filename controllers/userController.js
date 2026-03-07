@@ -83,19 +83,24 @@ export const createUser = async (req, res, next) => {
 export const updateUser = async (req, res, next) => {
   try {
     const { password, ...rest } = req.body;
-    const user = await User.findByIdAndUpdate(req.params.id, rest, {
-      new: true,
-      runValidators: true,
-    })
-      .select("-password")
-      .populate("role")
-      .populate("employee")
-      .lean();
-    if (!user) {
+    const doc = await User.findById(req.params.id);
+    if (!doc) {
       const error = new Error("User not found");
       error.statusCode = 404;
       throw error;
     }
+    Object.keys(rest).forEach((key) => {
+      if (rest[key] !== undefined) doc[key] = rest[key];
+    });
+    if (typeof password === "string" && password.trim()) {
+      doc.password = password.trim();
+    }
+    await doc.save();
+    const user = await User.findById(doc._id)
+      .select("-password")
+      .populate("role")
+      .populate("employee")
+      .lean();
     res.json(user);
   } catch (error) {
     if (error.code === 11000 && error.keyPattern && error.keyPattern.email) {

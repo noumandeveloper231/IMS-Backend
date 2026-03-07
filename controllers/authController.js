@@ -2,6 +2,7 @@ import User from "../models/userModel.js";
 import Role from "../models/roleModel.js";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
+import { getEffectivePermissions } from "../constants/permissions.js";
 
 /**
  * Generate JWT with id, role name, and permissions so protect() doesn't need DB.
@@ -16,7 +17,8 @@ const generateToken = (id, roleName, permissions) => {
 
 function buildUserPayload(user, roleDoc) {
   const roleName = roleDoc ? roleDoc.name : (user.role && user.role.name);
-  const permissions = roleDoc ? roleDoc.permissions : (user.role && user.role.permissions) || [];
+  const rawPermissions = roleDoc ? roleDoc.permissions : (user.role && user.role.permissions) || [];
+  const permissions = getEffectivePermissions(rawPermissions);
   return {
     id: user._id,
     name: user.name,

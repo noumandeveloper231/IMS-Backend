@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import User from "../models/userModel.js";
+import { getEffectivePermissions } from "../constants/permissions.js";
 
 /**
  * Protect: verify JWT and set req.user from token payload (id, role, permissions).
@@ -27,7 +28,7 @@ export const protect = async (req, res, next) => {
       req.user = {
         id: decoded.id,
         role: decoded.role,
-        permissions: decoded.permissions,
+        permissions: getEffectivePermissions(decoded.permissions),
       };
       return next();
     }
@@ -42,7 +43,9 @@ export const protect = async (req, res, next) => {
       error.statusCode = 403;
       throw error;
     }
-    const permissions = user.role && user.role.permissions ? user.role.permissions : [];
+    const permissions = getEffectivePermissions(
+      user.role && user.role.permissions ? user.role.permissions : []
+    );
     req.user = {
       id: user._id,
       role: user.role ? user.role.name : null,

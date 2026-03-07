@@ -142,6 +142,53 @@ export const uploadToBlob = async (file, folder) => {
   });
 };
 
+/** Default folder for Media Library uploads */
+const MEDIA_FOLDER = "gallery";
+
+/**
+ * Upload a single file to Cloudinary and return full metadata for Media collection.
+ * Used by Media Library: upload → save metadata in DB.
+ * Returns: { url, public_id, width, height, format, size, folder } or null.
+ */
+export const uploadToBlobWithMetadata = async (file, folder = MEDIA_FOLDER) => {
+  if (!file || !file.buffer) return null;
+
+  ensureCloudinaryConfigured();
+
+  const resourceType = getResourceType(file);
+  if (resourceType !== "image") return null; // Media library: images only for now
+
+  const baseFolder = process.env.CLOUDINARY_FOLDER || "";
+  const folderPath = baseFolder ? `${baseFolder}/${folder}` : folder;
+
+  let bufferToUpload = file.buffer;
+  const optimized = await optimizeImageBuffer(file.buffer);
+  if (optimized) bufferToUpload = optimized;
+
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      { folder: folderPath, resource_type: "image" },
+      (err, result) => {
+        if (err) {
+          console.warn("Cloudinary upload failed:", err?.message || err);
+          return reject(err);
+        }
+        if (!result) return resolve(null);
+        resolve({
+          url: result.secure_url,
+          public_id: result.public_id,
+          width: result.width ?? null,
+          height: result.height ?? null,
+          format: result.format ?? null,
+          size: result.bytes ?? null,
+          folder: result.folder ?? folderPath,
+        });
+      }
+    );
+    uploadStream.end(bufferToUpload);
+  });
+};
+
 // Extensions for inferring resource_type when deleting from URL
 const VIDEO_EXT = "mp4|webm|mov|avi|mkv";
 const RAW_EXT = "pdf|doc|docx|xls|xlsx|txt|zip";

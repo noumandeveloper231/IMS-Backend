@@ -1,8 +1,12 @@
-// controllers/brandController.js
 import mongoose from "mongoose";
 import Brand from "../models/brandModel.js";
 import Product from "../models/productModel.js";
 import { uploadToBlob, deleteFromBlobIfUrl } from "../utils/blob.js";
+import {
+  checkBulkDependencies as checkBulkDependenciesService,
+  bulkDeletePreview as bulkDeletePreviewService,
+  executeBulkDelete as executeBulkDeleteService,
+} from "../services/brandBulkService.js";
 
 // ✅ Upload brand image only (returns URL for use in bulk import etc.)
 export const uploadBrandImage = async (req, res) => {
@@ -50,11 +54,18 @@ export const deleteBrandImageByUrl = async (req, res) => {
 
 export const createBrand = async (req, res) => {
   try {
-    const { name } = req.body;
+    let { name, logo: logoId } = req.body;
+    if (typeof logoId === "string") logoId = logoId.trim();
+    if (Array.isArray(logoId)) logoId = logoId[0];
+    let logoRef = null;
+    let imageUrl = null;
+    if (logoId && mongoose.Types.ObjectId.isValid(logoId)) {
+      logoRef = logoId;
+    } else if (req.file) {
+      imageUrl = await uploadToBlob(req.file, "brands");
+    }
 
-    const image = req.file ? await uploadToBlob(req.file, "brands") : null;
-
-    const existingBrand = await Brand.findOne({ name: name.trim() });
+    const existingBrand = await Brand.findOne({ name: name?.trim() });
     if (existingBrand) {
       return res.json({
         success: false,
@@ -63,15 +74,18 @@ export const createBrand = async (req, res) => {
     }
 
     const newBrand = new Brand({
-      name: name.trim(),
-      image,
+      name: name?.trim(),
+      logo: logoRef,
+      image: imageUrl || undefined,
     });
     await newBrand.save();
 
+    const populated = await Brand.findById(newBrand._id).populate("logo").lean();
+    const payload = populated ? { ...populated, imageUrl: populated.logo?.url || populated.image } : newBrand;
     res.json({
       success: true,
       message: "Brand created successfully",
-      Brand: newBrand,
+      Brand: payload,
     });
   } catch (error) {
     res.status(500).json({
@@ -99,7 +113,7 @@ export const createBulkBrands = async (req, res) => {
 
       const newBrand = new Brand({
         name: name.trim(),
-        image, // The image path is directly available here
+        image, // bulk: legacy URL
       });
       await newBrand.save();
       createdBrands.push(newBrand);
@@ -121,10 +135,14 @@ export const createBulkBrands = async (req, res) => {
 // ✅ Get all brands
 export const getBrands = async (req, res) => {
   try {
-    const brands = await Brand.find();
+    const brands = await Brand.find().populate("logo").lean();
+    const withUrl = brands.map((b) => ({
+      ...b,
+      imageUrl: b.logo?.url || b.image,
+    }));
     res.status(200).json({
       success: true,
-      brands,
+      brands: withUrl,
     });
   } catch (error) {
     res.status(500).json({
@@ -139,27 +157,94 @@ export const getBrandsCount = async (req, res) => {
   try {
     const brands = await Brand.aggregate([
       {
+        $addFields: {
+          logoId: {
+            $cond: [
+              { $eq: [{ $type: "$logo" }, "string"] },
+              { $toObjectId: "$logo" },
+              "$logo",
+            ],
+          },
+        },
+      },
+      {
         $lookup: {
-          from: "products", // products collection ka naam
+          from: "products",
           localField: "_id",
           foreignField: "brand",
           as: "products",
         },
       },
       {
+        $lookup: {
+          from: "media",
+          let: { lid: "$logoId" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$lid"] } } },
+            { $project: { url: 1 } },
+          ],
+          as: "logoDocMedia",
+        },
+      },
+      {
+        $lookup: {
+          from: "medias",
+          let: { lid: "$logoId" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$lid"] } } },
+            { $project: { url: 1 } },
+          ],
+          as: "logoDocMedias",
+        },
+      },
+      {
+        $addFields: {
+          logoDoc: {
+            $cond: {
+              if: { $gt: [{ $size: "$logoDocMedia" }, 0] },
+              then: "$logoDocMedia",
+              else: "$logoDocMedias",
+            },
+          },
+        },
+      },
+      {
         $addFields: {
           productCount: { $size: "$products" },
+          imageUrl: {
+            $cond: {
+              if: { $gt: [{ $size: "$logoDoc" }, 0] },
+              then: { $arrayElemAt: ["$logoDoc.url", 0] },
+              else: "$image",
+            },
+          },
         },
       },
       {
         $project: {
           products: 0,
+          logoDoc: 0,
+          logoDocMedia: 0,
+          logoDocMedias: 0,
+          logoId: 0,
         },
       },
       {
-        $sort: { name: 1 }, // 🔹 Ascending A→Z
+        $sort: { name: 1 },
       },
     ]);
+
+    // #region agent log
+    const withLogo = brands.filter((b) => b.logo);
+    const missingImageUrl = brands.filter((b) => b.logo && !b.imageUrl && !b.image);
+    const sample = withLogo[0] || brands[0];
+    if (sample) {
+      fetch('http://127.0.0.1:7822/ingest/e80cfdd2-dd48-4002-adf0-6ed47d0de637',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'7dec65'},body:JSON.stringify({sessionId:'7dec65',runId:'getBrandsCount',hypothesisId:'H6',location:'brandController.js:getBrandsCount',message:'getBrandsCount sample brand',data:{name:sample.name,logo:sample.logo,logoType:typeof sample.logo,imageUrl:sample.imageUrl,image:sample.image,withLogoCount:withLogo.length,totalCount:brands.length},timestamp:Date.now()})}).catch(()=>{});
+    }
+    if (missingImageUrl.length > 0) {
+      fetch('http://127.0.0.1:7822/ingest/e80cfdd2-dd48-4002-adf0-6ed47d0de637',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'7dec65'},body:JSON.stringify({sessionId:'7dec65',runId:'getBrandsCount',hypothesisId:'H6',location:'brandController.js:getBrandsCount',message:'brands with logo but no imageUrl',data:{count:missingImageUrl.length,brands:missingImageUrl.map((b)=>({name:b.name,id:b._id,logo:b.logo}))},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion agent log
 
     res.status(200).json({
       success: true,
@@ -173,6 +258,7 @@ export const getBrandsCount = async (req, res) => {
     });
   }
 };
+
 // ✅ Get brand dependencies (products count)
 export const getBrandDependencies = async (req, res) => {
   try {
@@ -251,11 +337,12 @@ export const transferBrandDependencies = async (req, res) => {
 export const getBrandById = async (req, res) => {
   try {
     const id = req.params.id;
-    const userExist = await Brand.findById(id);
+    const userExist = await Brand.findById(id).populate("logo").lean();
     if (!userExist) {
       return res.status(404).json({ msg: "Brand not found" });
     }
-    res.status(200).json(userExist);
+    const withUrl = { ...userExist, imageUrl: userExist.logo?.url || userExist.image };
+    res.status(200).json(withUrl);
   } catch (error) {
     console.log(req.params.id);
     res.status(500).json({ error: error });
@@ -265,12 +352,13 @@ export const getBrandById = async (req, res) => {
 export const updateBrand = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name } = req.body;
-    const newImage = req.file ? await uploadToBlob(req.file, "brands") : null;
+    let { name, logo: logoId } = req.body;
+    if (typeof logoId === "string") logoId = logoId.trim();
+    if (Array.isArray(logoId)) logoId = logoId[0];
+    const newImageUrl = req.file ? await uploadToBlob(req.file, "brands") : null;
 
-    // 🔎 Check duplicate name (excluding same id)
     const duplicate = await Brand.findOne({
-      name: name.trim(),
+      name: name?.trim(),
       _id: { $ne: id },
     });
     if (duplicate) {
@@ -280,7 +368,6 @@ export const updateBrand = async (req, res) => {
       });
     }
 
-    // 🔎 Find brand before update
     const brand = await Brand.findById(id);
     if (!brand) {
       return res.json({
@@ -289,21 +376,26 @@ export const updateBrand = async (req, res) => {
       });
     }
 
-    // ✅ Agar new image upload hui hai to purani Blob image delete karo (async)
-    if (newImage && brand.image) {
+    if (newImageUrl && brand.image) {
       await deleteFromBlobIfUrl(brand.image);
     }
 
-    // ✅ Update brand
-    brand.name = name.trim();
-    if (newImage) brand.image = newImage;
-
+    brand.name = name?.trim();
+    if (logoId !== undefined) {
+      brand.logo = logoId && mongoose.Types.ObjectId.isValid(logoId) ? logoId : null;
+    }
+    if (newImageUrl) {
+      brand.image = newImageUrl;
+      brand.logo = null;
+    }
     await brand.save();
 
+    const populated = await Brand.findById(brand._id).populate("logo").lean();
+    const withUrl = populated ? { ...populated, imageUrl: populated.logo?.url || populated.image } : brand;
     res.json({
       success: true,
       message: "Brand updated successfully",
-      brand,
+      brand: withUrl,
     });
   } catch (error) {
     res.status(500).json({
@@ -363,6 +455,87 @@ export const deleteBrand = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to delete brand",
+      error: error.message,
+    });
+  }
+};
+
+// ========== Bulk dependency & delete ==========
+
+/**
+ * POST /brands/check-bulk-dependencies
+ * Body: { brandIds: string[] }
+ * Returns: { operationId, summary: { total, noDeps, needsResolution }, items: [...] }
+ */
+export const checkBulkDependencies = async (req, res) => {
+  try {
+    const { brandIds } = req.body;
+    const result = await checkBulkDependenciesService(brandIds);
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    const status =
+      error.message?.includes("not found") || error.message?.includes("Invalid")
+        ? 400
+        : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Failed to check bulk dependencies",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * POST /brands/bulk-delete-preview
+ * Body: { brandIds: string[], resolutionPlan: { id, action, transferTo? }[] }
+ * Returns: { summary, brands } (simulation, no commit)
+ */
+export const bulkDeletePreview = async (req, res) => {
+  try {
+    const { brandIds, resolutionPlan } = req.body;
+    const result = await bulkDeletePreviewService(brandIds, resolutionPlan);
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    const status =
+      error.message?.includes("not found") || error.message?.includes("Invalid")
+        ? 400
+        : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Bulk delete preview failed",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * POST /brands/bulk-delete
+ * Body: { brandIds: string[], resolutionPlan: { id, action, transferTo? }[] }
+ */
+export const bulkDelete = async (req, res) => {
+  try {
+    const { brandIds, resolutionPlan } = req.body;
+    const result = await executeBulkDeleteService(brandIds, resolutionPlan);
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    const status =
+      error.message?.includes("not found") ||
+      error.message?.includes("Invalid") ||
+      error.message?.includes("cannot be in the delete list")
+        ? 400
+        : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Bulk delete failed",
       error: error.message,
     });
   }

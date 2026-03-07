@@ -57,18 +57,30 @@ export const deleteCategoryImageByUrl = async (req, res) => {
 // ✅ Create category
 export const createCategory = async (req, res) => {
   try {
-    const { name } = req.body;
-    const image = req.file
-      ? await uploadToBlob(req.file, "categories")
-      : null;
+    let { name, image: imageId } = req.body;
+    if (typeof imageId === "string") imageId = imageId.trim();
+    if (Array.isArray(imageId)) imageId = imageId[0];
+    let imageRef = null;
+    let imageUrl = null;
+    if (imageId && mongoose.Types.ObjectId.isValid(imageId)) {
+      imageRef = imageId;
+    } else if (req.file) {
+      imageUrl = await uploadToBlob(req.file, "categories");
+    }
 
-    const category = new Category({ name, image });
+    const category = new Category({
+      name: name?.trim(),
+      image: imageRef,
+      imageUrl: imageUrl || undefined,
+    });
     await category.save();
 
+    const populated = await Category.findById(category._id).populate("image").lean();
+    const payload = populated ? { ...populated, imageUrl: populated.image?.url || populated.imageUrl } : category;
     res.status(201).json({
       success: true,
       message: "Category created successfully",
-      category,
+      category: payload,
     });
   } catch (error) {
     res.status(500).json({
@@ -97,7 +109,8 @@ export const createBulkCategories = async (req, res) => {
 
       const newCategory = new Category({
         name: name.trim(),
-        image, // Yahan image ka path seedha save ho jayega
+        image: undefined,
+        imageUrl: image || undefined,
       });
       await newCategory.save();
       createdCategories.push(newCategory);
@@ -119,10 +132,14 @@ export const createBulkCategories = async (req, res) => {
 // ✅ Get all categories
 export const getCategories = async (req, res) => {
   try {
-    const categories = await Category.find();
+    const categories = await Category.find().populate("image").lean();
+    const withUrl = categories.map((c) => ({
+      ...c,
+      imageUrl: c.image?.url || c.imageUrl,
+    }));
     res.status(200).json({
       success: true,
-      categories,
+      categories: withUrl,
     });
   } catch (error) {
     res.status(500).json({
@@ -145,17 +162,33 @@ export const getCategoriesCount = async (req, res) => {
         },
       },
       {
+        $lookup: {
+          from: "media",
+          localField: "image",
+          foreignField: "_id",
+          as: "imageDoc",
+        },
+      },
+      {
         $addFields: {
           productCount: { $size: "$products" },
+          imageUrl: {
+            $cond: {
+              if: { $gt: [{ $size: "$imageDoc" }, 0] },
+              then: { $arrayElemAt: ["$imageDoc.url", 0] },
+              else: "$imageUrl",
+            },
+          },
         },
       },
       {
         $project: {
           products: 0,
+          imageDoc: 0,
         },
       },
       {
-        $sort: { name: 1 }, // 🔹 Ascending A→Z
+        $sort: { name: 1 },
       },
     ]);
 
@@ -175,11 +208,12 @@ export const getCategoriesCount = async (req, res) => {
 export const getCategoryById = async (req, res) => {
   try {
     const id = req.params.id;
-    const userExist = await Category.findById(id);
+    const userExist = await Category.findById(id).populate("image").lean();
     if (!userExist) {
       return res.status(404).json({ msg: "Category not found" });
     }
-    res.status(200).json(userExist);
+    const withUrl = { ...userExist, imageUrl: userExist.image?.url || userExist.imageUrl };
+    res.status(200).json(withUrl);
   } catch (error) {
     console.log(req.params.id);
     res.status(500).json({ error: error });
@@ -189,17 +223,15 @@ export const getCategoryById = async (req, res) => {
 export const updateCategory = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name } = req.body;
-    const newImage = req.file
-      ? await uploadToBlob(req.file, "categories")
-      : null;
+    let { name, image: imageId } = req.body;
+    if (typeof imageId === "string") imageId = imageId.trim();
+    if (Array.isArray(imageId)) imageId = imageId[0];
+    const newImageUrl = req.file ? await uploadToBlob(req.file, "categories") : null;
 
-    // 🔎 Check if another category with same name exists
     const existingCategory = await Category.findOne({
-      name: name.trim(),
-      _id: { $ne: id }, // exclude current category from check
+      name: name?.trim(),
+      _id: { $ne: id },
     });
-
     if (existingCategory) {
       return res.json({
         success: false,
@@ -207,7 +239,6 @@ export const updateCategory = async (req, res) => {
       });
     }
 
-    // 🔎 Find category before update
     const category = await Category.findById(id);
     if (!category) {
       return res.json({
@@ -216,21 +247,26 @@ export const updateCategory = async (req, res) => {
       });
     }
 
-    // ✅ Agar new image upload hui hai to purani Blob image delete karo
-    if (newImage && category.image) {
-      await deleteFromBlobIfUrl(category.image);
+    if (newImageUrl && category.imageUrl) {
+      await deleteFromBlobIfUrl(category.imageUrl);
     }
 
-    // ✅ Update category fields
-    category.name = name.trim();
-    if (newImage) category.image = newImage;
-
+    category.name = name?.trim();
+    if (imageId !== undefined) {
+      category.image = imageId && mongoose.Types.ObjectId.isValid(imageId) ? imageId : null;
+    }
+    if (newImageUrl) {
+      category.imageUrl = newImageUrl;
+      category.image = null;
+    }
     await category.save();
 
+    const populated = await Category.findById(category._id).populate("image").lean();
+    const withUrl = populated ? { ...populated, imageUrl: populated.image?.url || populated.imageUrl } : category;
     res.status(200).json({
       success: true,
       message: "Category updated successfully",
-      category,
+      category: withUrl,
     });
   } catch (error) {
     res.status(500).json({
@@ -310,9 +346,8 @@ export const transferCategoryDependencies = async (req, res) => {
       { category: categoryObjId },
       { $set: { category: targetObjId } }
     );
-    // Delete category and its image from blob
-    if (category.image) {
-      await deleteFromBlobIfUrl(category.image);
+    if (category.imageUrl) {
+      await deleteFromBlobIfUrl(category.imageUrl);
     }
     await Category.findByIdAndDelete(id);
     res.status(200).json({
@@ -375,9 +410,9 @@ export const deleteCategory = async (req, res) => {
       }
     }
 
-    // ✅ Agar category ki image hai to Blob se delete karo
-    if (category.image) {
-      await deleteFromBlobIfUrl(category.image);
+    // ✅ Agar category ki image hai to Blob se delete karo (legacy URL only)
+    if (category.imageUrl) {
+      await deleteFromBlobIfUrl(category.imageUrl);
     }
 
     await Category.findByIdAndDelete(id);

@@ -10,7 +10,13 @@ const categorySchema = new mongoose.Schema(
       unique: true,
     },
     image: {
-      type: String, // yaha pe image ka path/URL save hoga
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Media",
+      default: null,
+    },
+    imageUrl: {
+      type: String,
+      default: null,
     },
   },
   { timestamps: true }

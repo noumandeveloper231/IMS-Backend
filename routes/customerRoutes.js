@@ -8,6 +8,7 @@ import {
 } from "../controllers/customerController.js";
 import { body } from "express-validator";
 import { validate } from "../middlewares/validate.js";
+import { protect, allow } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 
@@ -17,10 +18,10 @@ const createValidation = [
   body("email").optional().isEmail(),
 ];
 
-router.get("/", getCustomers);
-router.get("/:id", getCustomerById);
-router.post("/", createValidation, validate, createCustomer);
-router.put("/:id", createValidation, validate, updateCustomer);
-router.delete("/:id", deleteCustomer);
+router.get("/", protect, allow("customer.manage"), getCustomers);
+router.get("/:id", protect, allow("customer.manage"), getCustomerById);
+router.post("/", protect, allow("customer.manage"), createValidation, validate, createCustomer);
+router.put("/:id", protect, allow("customer.manage"), createValidation, validate, updateCustomer);
+router.delete("/:id", protect, allow("customer.manage"), deleteCustomer);
 
 export default router;

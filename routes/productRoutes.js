@@ -20,33 +20,31 @@ import {
   bulkDelete,
 } from "../controllers/productController.js";
 import { getStockCounts } from "../controllers/countController.js";
+import { protect, allow } from "../middlewares/authMiddleware.js";
+
 const router = express.Router();
 
 // ✅ Multer setup for in-memory Excel upload (no disk on Vercel)
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Public endpoints
-router.post("/create", uploadProducts.any(), createProduct); // Create (supports multiple images)
-router.post("/upload-image", uploadProducts.single("image"), uploadProductImage); // Upload image only (bulk import)
-router.post("/delete-image-by-url", deleteProductImageByUrl); // Delete blob image by URL (for import replace)
-router.get("/getall", getProducts); // List
-router.get("/stock-counts", getStockCounts);
-router.get("/getone/:id", getProductById); // Read one
-router.put("/update/:id", uploadProducts.any(), updateProduct); // Update (supports multiple images)
-router.get("/filter/:type/:id", getProductsByFilter);
-router.get("/filter/stock/:status", getProductsByFilterStock);
-router.post("/bulk-create", bulkCreateProducts);
-router.post("/bulk-import", upload.single("file"), bulkImportProducts);
-router.delete("/delete/:id", deleteProduct); // Delete
+router.post("/create", protect, allow("product.create"), uploadProducts.any(), createProduct);
+router.post("/upload-image", protect, allow("product.create"), uploadProducts.single("image"), uploadProductImage);
+router.post("/delete-image-by-url", protect, allow("product.create"), deleteProductImageByUrl);
+router.get("/getall", protect, allow("product.read"), getProducts);
+router.get("/stock-counts", protect, allow("product.read"), getStockCounts);
+router.get("/getone/:id", protect, allow("product.read"), getProductById);
+router.put("/update/:id", protect, allow("product.update"), uploadProducts.any(), updateProduct);
+router.get("/filter/:type/:id", protect, allow("product.read"), getProductsByFilter);
+router.get("/filter/stock/:status", protect, allow("product.read"), getProductsByFilterStock);
+router.post("/bulk-create", protect, allow("product.create"), bulkCreateProducts);
+router.post("/bulk-import", protect, allow("product.create"), upload.single("file"), bulkImportProducts);
+router.delete("/delete/:id", protect, allow("product.delete"), deleteProduct);
 
 // Bulk dependency & delete (like Categories)
-router.get("/dependencies/:id", getProductDependencies);
-router.post("/check-bulk-dependencies", checkBulkDependencies);
-router.post("/bulk-delete-preview", bulkDeletePreview);
-router.post("/bulk-delete", bulkDelete);
-// router.get('/low-stock', verifyToken, allowRoles('admin', 'manager'), async (req, res) => {
-//   const items = await checkLowStock();
-//   res.json(items);
-// });
+router.get("/dependencies/:id", protect, allow("product.read"), getProductDependencies);
+router.post("/check-bulk-dependencies", protect, allow("product.delete"), checkBulkDependencies);
+router.post("/bulk-delete-preview", protect, allow("product.delete"), bulkDeletePreview);
+router.post("/bulk-delete", protect, allow("product.delete"), bulkDelete);
 
 export default router;

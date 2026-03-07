@@ -1,4 +1,5 @@
 import express from "express";
+import { protect, allow } from "../middlewares/authMiddleware.js";
 import {
   createBill,
   getBills,
@@ -9,10 +10,10 @@ import {
 
 const router = express.Router();
 
-router.post("/", createBill);
-router.get("/", getBills);
-router.get("/:id", getBillById);
-router.put("/:id", updateBill);
-router.delete("/:id", deleteBill);
+router.post("/", protect, allow("purchase.manage"), createBill);
+router.get("/", protect, allow("purchase.manage"), getBills);
+router.get("/:id", protect, allow("purchase.manage"), getBillById);
+router.put("/:id", protect, allow("purchase.manage"), updateBill);
+router.delete("/:id", protect, allow("purchase.manage"), deleteBill);
 
 export default router;

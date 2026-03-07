@@ -32,6 +32,17 @@ const productSchema = new mongoose.Schema(
       ref: "Condition",
       required: false,
     },
+    thumbnail: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Media",
+      default: null,
+    },
+    gallery: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Media",
+      },
+    ],
     images: [
       {
         type: String,

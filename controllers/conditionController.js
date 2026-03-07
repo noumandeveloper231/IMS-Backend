@@ -3,6 +3,11 @@ import mongoose from "mongoose";
 import Condition from "../models/conditionModel.js";
 import Product from "../models/productModel.js";
 import { uploadToBlob, deleteFromBlobIfUrl } from "../utils/blob.js";
+import {
+  checkBulkDependencies as checkBulkDependenciesService,
+  bulkDeletePreview as bulkDeletePreviewService,
+  executeBulkDelete as executeBulkDeleteService,
+} from "../services/conditionBulkService.js";
 
 // ✅ Upload condition image only (returns URL for use in bulk import etc.)
 export const uploadConditionImage = async (req, res) => {
@@ -51,27 +56,40 @@ export const deleteConditionImageByUrl = async (req, res) => {
 // ✅ Create condition
 export const createCondition = async (req, res) => {
   try {
-    const { name } = req.body;
+    let { name, image: imageId } = req.body || {};
+    if (typeof imageId === "string") imageId = imageId.trim();
+    if (Array.isArray(imageId)) imageId = imageId[0];
+    let imageRef = null;
+    let imageUrl = null;
+    if (imageId && mongoose.Types.ObjectId.isValid(imageId)) {
+      imageRef = imageId;
+    } else if (req.file) {
+      imageUrl = await uploadToBlob(req.file, "conditions");
+    }
 
-    const image = req.file
-      ? await uploadToBlob(req.file, "conditions")
-      : null;
-    // Check if Condition already exists
-    const existingCondition = await Condition.findOne({ name: name.trim() });
-
+    const existingCondition = await Condition.findOne({ name: name?.trim() });
     if (existingCondition) {
       return res.json({
         success: false,
         message: "This Condition already exists!",
       });
     }
-    // Create new Condition
-    const newCondition = new Condition({ name: name.trim(), image });
+
+    const newCondition = new Condition({
+      name: name?.trim(),
+      imageRef,
+      image: imageUrl,
+    });
     await newCondition.save();
+
+    const populated = await Condition.findById(newCondition._id).populate("imageRef").lean();
+    const payload = populated
+      ? { ...populated, imageUrl: populated.imageRef?.url || populated.image }
+      : newCondition;
     res.json({
       success: true,
       message: "Condition created successfully",
-      Condition: newCondition,
+      Condition: payload,
     });
   } catch (error) {
     res.status(500).json({
@@ -215,21 +233,87 @@ export const getConditionsCount = async (req, res) => {
   try {
     const conditions = await Condition.aggregate([
       {
+        $addFields: {
+          imageId: {
+            $cond: [
+              {
+                $and: [
+                  { $eq: [{ $type: "$imageRef" }, "string"] },
+                  { $gt: [{ $strLenCP: { $ifNull: ["$imageRef", ""] } }, 0] },
+                ],
+              },
+              { $toObjectId: "$imageRef" },
+              {
+                $cond: [
+                  { $in: [{ $type: "$imageRef" }, ["objectId", "object"]] },
+                  "$imageRef",
+                  null,
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
         $lookup: {
-          from: "products", // products collection ka naam
+          from: "products",
           localField: "_id",
           foreignField: "condition",
           as: "products",
         },
       },
       {
+        $lookup: {
+          from: "media",
+          let: { iid: "$imageId" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$iid"] } } },
+            { $project: { url: 1 } },
+          ],
+          as: "imageDocMedia",
+        },
+      },
+      {
+        $lookup: {
+          from: "medias",
+          let: { iid: "$imageId" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$iid"] } } },
+            { $project: { url: 1 } },
+          ],
+          as: "imageDocMedias",
+        },
+      },
+      {
+        $addFields: {
+          imageDoc: {
+            $cond: {
+              if: { $gt: [{ $size: "$imageDocMedia" }, 0] },
+              then: "$imageDocMedia",
+              else: "$imageDocMedias",
+            },
+          },
+        },
+      },
+      {
         $addFields: {
           productCount: { $size: "$products" },
+          imageUrl: {
+            $cond: {
+              if: { $gt: [{ $size: "$imageDoc" }, 0] },
+              then: { $arrayElemAt: ["$imageDoc.url", 0] },
+              else: "$image",
+            },
+          },
         },
       },
       {
         $project: {
           products: 0,
+          imageDoc: 0,
+          imageDocMedia: 0,
+          imageDocMedias: 0,
+          imageId: 0,
         },
       },
     ]);
@@ -241,7 +325,7 @@ export const getConditionsCount = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Failed to retrieve brands",
+      message: "Failed to retrieve conditions",
       error: error.message,
     });
   }
@@ -250,11 +334,12 @@ export const getConditionsCount = async (req, res) => {
 export const getConditionById = async (req, res) => {
   try {
     const id = req.params.id;
-    const userExist = await Condition.findById(id);
+    const userExist = await Condition.findById(id).populate("imageRef").lean();
     if (!userExist) {
       return res.status(404).json({ msg: "Condition not found" });
     }
-    res.status(200).json(userExist);
+    const withUrl = { ...userExist, imageUrl: userExist.imageRef?.url || userExist.image };
+    res.status(200).json(withUrl);
   } catch (error) {
     console.log(req.params.id);
     res.status(500).json({ error: error });
@@ -264,15 +349,15 @@ export const getConditionById = async (req, res) => {
 export const updateCondition = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name } = req.body;
-    const newImage = req.file
-      ? await uploadToBlob(req.file, "conditions")
-      : null;
+    const file = req.files && Array.isArray(req.files) ? req.files.find((f) => f.fieldname === "image") : req.file;
+    let { name, image: imageId } = req.body || {};
+    if (typeof imageId === "string") imageId = imageId.trim();
+    if (Array.isArray(imageId)) imageId = imageId[0];
+    const newImageUrl = file ? await uploadToBlob(file, "conditions") : null;
 
-    // 🔎 Check if another condition with same name exists
     const existingCondition = await Condition.findOne({
-      name: name.trim(),
-      _id: { $ne: id }, // exclude current condition from check
+      name: name?.trim(),
+      _id: { $ne: id },
     });
     if (existingCondition) {
       return res.json({
@@ -281,7 +366,6 @@ export const updateCondition = async (req, res) => {
       });
     }
 
-    // 🔎 Find condition before update
     const condition = await Condition.findById(id);
     if (!condition) {
       return res.json({
@@ -290,21 +374,31 @@ export const updateCondition = async (req, res) => {
       });
     }
 
-    // ✅ Agar new image upload hui hai to purani Blob image delete karo
-    if (newImage && condition.image) {
+    if (newImageUrl && condition.image) {
       await deleteFromBlobIfUrl(condition.image);
     }
 
-    // ✅ Update condition fields
-    condition.name = name.trim();
-    if (newImage) condition.image = newImage;
-
+    condition.name = name?.trim();
+    if (imageId !== undefined) {
+      condition.imageRef = imageId && mongoose.Types.ObjectId.isValid(imageId) ? imageId : null;
+      if (condition.imageRef && !newImageUrl) {
+        condition.image = null;
+      }
+    }
+    if (newImageUrl) {
+      condition.image = newImageUrl;
+      condition.imageRef = null;
+    }
     await condition.save();
 
+    const populated = await Condition.findById(condition._id).populate("imageRef").lean();
+    const withUrl = populated
+      ? { ...populated, imageUrl: populated.imageRef?.url || populated.image }
+      : condition;
     res.status(200).json({
       success: true,
       message: "Condition updated successfully",
-      condition,
+      condition: withUrl,
     });
   } catch (error) {
     res.status(500).json({
@@ -364,6 +458,87 @@ export const deleteCondition = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to delete condition",
+      error: error.message,
+    });
+  }
+};
+
+// ========== Bulk dependency & delete ==========
+
+/**
+ * POST /conditions/check-bulk-dependencies
+ * Body: { conditionIds: string[] }
+ * Returns: { operationId, summary: { total, noDeps, needsResolution }, items: [...] }
+ */
+export const checkBulkDependencies = async (req, res) => {
+  try {
+    const { conditionIds } = req.body;
+    const result = await checkBulkDependenciesService(conditionIds);
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    const status =
+      error.message?.includes("not found") || error.message?.includes("Invalid")
+        ? 400
+        : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Failed to check bulk dependencies",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * POST /conditions/bulk-delete-preview
+ * Body: { conditionIds: string[], resolutionPlan: { id, action, transferTo? }[] }
+ * Returns: { summary, conditions } (simulation, no commit)
+ */
+export const bulkDeletePreview = async (req, res) => {
+  try {
+    const { conditionIds, resolutionPlan } = req.body;
+    const result = await bulkDeletePreviewService(conditionIds, resolutionPlan);
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    const status =
+      error.message?.includes("not found") || error.message?.includes("Invalid")
+        ? 400
+        : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Bulk delete preview failed",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * POST /conditions/bulk-delete
+ * Body: { conditionIds: string[], resolutionPlan: { id, action, transferTo? }[] }
+ */
+export const bulkDelete = async (req, res) => {
+  try {
+    const { conditionIds, resolutionPlan } = req.body;
+    const result = await executeBulkDeleteService(conditionIds, resolutionPlan);
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    const status =
+      error.message?.includes("not found") ||
+      error.message?.includes("Invalid") ||
+      error.message?.includes("cannot be in the delete list")
+        ? 400
+        : 500;
+    res.status(status).json({
+      success: false,
+      message: error.message || "Bulk delete failed",
       error: error.message,
     });
   }

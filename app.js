@@ -24,6 +24,7 @@ import authRoutes from "./routes/authRoutes.js";
 import customerRoutes from "./routes/customerRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
 import imageRoutes from "./routes/imageRoutes.js";
+import mediaRoutes from "./routes/mediaRoutes.js";
 import settingRoutes from "./routes/settingRoutes.js";
 
 dotenv.config();
@@ -76,6 +77,7 @@ app.use("/api/employees", employeeRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/images", imageRoutes);
+app.use("/api/media", mediaRoutes);
 app.use("/api/settings", settingRoutes);
 app.use("/api", countRoutes);
 

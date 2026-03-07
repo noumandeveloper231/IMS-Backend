@@ -1,5 +1,6 @@
 // routes/vendorRoutes.js
 import express from "express";
+import { protect, allow } from "../middlewares/authMiddleware.js";
 import {
   createVendor,
   createBulkVendors,
@@ -11,12 +12,11 @@ import {
 
 const router = express.Router();
 
-// CRUD routes
-router.post("/create", createVendor);
-router.post("/createbulk", createBulkVendors);
-router.get("/getall", getVendors);
-router.get("/getone/:id", getVendorById);
-router.put("/update/:id", updateVendor);
-router.delete("/delete/:id", deleteVendor);
+router.post("/create", protect, allow("vendor.manage"), createVendor);
+router.post("/createbulk", protect, allow("vendor.manage"), createBulkVendors);
+router.get("/getall", protect, allow("vendor.manage"), getVendors);
+router.get("/getone/:id", protect, allow("vendor.manage"), getVendorById);
+router.put("/update/:id", protect, allow("vendor.manage"), updateVendor);
+router.delete("/delete/:id", protect, allow("vendor.manage"), deleteVendor);
 
 export default router;

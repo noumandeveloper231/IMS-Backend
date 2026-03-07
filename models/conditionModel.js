@@ -10,7 +10,13 @@ const conditionSchema = new mongoose.Schema(
       unique: true,
     },
     image: {
-      type: String, // yaha image ka URL ya filename store hoga
+      type: String,
+      default: null,
+    },
+    imageRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Media",
+      default: null,
     },
   },
   { timestamps: true }

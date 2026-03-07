@@ -1,5 +1,6 @@
 // routes/purchaseOrderRoutes.js
 import express from "express";
+import { protect, allow } from "../middlewares/authMiddleware.js";
 import {
   createPurchaseOrder,
   getPurchaseOrders,
@@ -10,10 +11,10 @@ import {
 
 const router = express.Router();
 
-router.post("/", createPurchaseOrder);
-router.get("/", getPurchaseOrders);
-router.get("/:id", getPurchaseOrderById);
-router.put("/:id", updatePurchaseOrder);
-router.delete("/:id", deletePurchaseOrder);
+router.post("/", protect, allow("purchase.manage"), createPurchaseOrder);
+router.get("/", protect, allow("purchase.manage"), getPurchaseOrders);
+router.get("/:id", protect, allow("purchase.manage"), getPurchaseOrderById);
+router.put("/:id", protect, allow("purchase.manage"), updatePurchaseOrder);
+router.delete("/:id", protect, allow("purchase.manage"), deletePurchaseOrder);
 
 export default router;

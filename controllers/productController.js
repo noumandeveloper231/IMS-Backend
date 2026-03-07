@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Product from "../models/productModel.js";
 import Category from "../models/categoryModel.js";
 import Subcategory from "../models/subcategoryModel.js";
@@ -130,6 +131,8 @@ export const createProduct = async (req, res) => {
       noonUrl,
       sharafdgUrl,
       carrefourUrl,
+      thumbnailId,
+      galleryIds,
     } = req.body;
 
     console.log("req.body in createProduct", req.body);
@@ -143,27 +146,46 @@ export const createProduct = async (req, res) => {
     }
 
     // ✅ SKU se QR generate karna
+    // const qrCode = await QRCode.toDataURL(sku);
+
+    // ✅ SKU se QR generate karna
     const qrCode = await QRCode.toDataURL(sku);
 
-    // ✅ Multiple images support (images[] or image)
+    // ✅ Media Library: thumbnailId + galleryIds, or legacy file upload
+    let thumbnail = null;
+    let gallery = [];
+    let image = null;
     let uploadedImages = [];
-    if (Array.isArray(req.files) && req.files.length > 0) {
-      const imageFiles = req.files.filter(
-        (file) => file.fieldname === "images" || file.fieldname === "image"
-      );
-      if (imageFiles.length > 0) {
-        uploadedImages = await Promise.all(
-          imageFiles.map((file) => uploadToBlob(file, "products"))
-        );
-      }
-    } else if (req.file) {
-      const singleImage = await uploadToBlob(req.file, "products");
-      if (singleImage) {
-        uploadedImages = [singleImage];
-      }
+    if (thumbnailId && mongoose.Types.ObjectId.isValid(thumbnailId)) {
+      thumbnail = thumbnailId;
     }
-
-    const image = uploadedImages[0] || null;
+    if (Array.isArray(galleryIds) && galleryIds.length) {
+      gallery = galleryIds.filter((id) => id && mongoose.Types.ObjectId.isValid(id));
+    }
+    if (gallery.length === 0 && typeof req.body.galleryIds === "string") {
+      try {
+        const parsed = JSON.parse(req.body.galleryIds);
+        if (Array.isArray(parsed)) {
+          gallery = parsed.filter((id) => id && mongoose.Types.ObjectId.isValid(id));
+        }
+      } catch (_) {}
+    }
+    if (!thumbnail && gallery.length === 0) {
+      if (Array.isArray(req.files) && req.files.length > 0) {
+        const imageFiles = req.files.filter(
+          (file) => file.fieldname === "images" || file.fieldname === "image"
+        );
+        if (imageFiles.length > 0) {
+          uploadedImages = await Promise.all(
+            imageFiles.map((file) => uploadToBlob(file, "products"))
+          );
+        }
+      } else if (req.file) {
+        const singleImage = await uploadToBlob(req.file, "products");
+        if (singleImage) uploadedImages = [singleImage];
+      }
+      image = uploadedImages[0] || null;
+    }
 
     const refundableVal =
       refundable === "false" || refundable === false ? false : true;
@@ -192,6 +214,8 @@ export const createProduct = async (req, res) => {
       returnable: returnable ?? true,
       refundable: refundableVal,
       qrCode,
+      thumbnail: thumbnail || undefined,
+      gallery: gallery.length ? gallery : undefined,
       image,
       images: uploadedImages,
       competitors: competitorsObj,
@@ -199,10 +223,18 @@ export const createProduct = async (req, res) => {
 
     await product.save();
 
+    const created = await Product.findById(product._id)
+      .populate("thumbnail")
+      .populate("gallery")
+      .lean();
+    if (created) {
+      created.image = created.thumbnail?.url || created.image;
+      created.images = (created.gallery && created.gallery.map((m) => m?.url).filter(Boolean)) || created.images || [];
+    }
     res.status(201).json({
       success: true,
       message: "Product created successfully ✅",
-      product,
+      product: created || product,
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -378,12 +410,19 @@ export const getProducts = async (req, res) => {
       .populate("brand")
       .populate("condition")
       .populate("category")
-      .populate("subcategory");
-
+      .populate("subcategory")
+      .populate("thumbnail")
+      .populate("gallery");
+    const withImageUrls = products.map((p) => {
+      const doc = p.toObject ? p.toObject() : p;
+      doc.image = doc.thumbnail?.url || doc.image;
+      doc.images = (doc.gallery && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];
+      return doc;
+    });
     res.status(200).json({
       success: true,
-      count: products.length,
-      products,
+      count: withImageUrls.length,
+      products: withImageUrls,
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -397,7 +436,9 @@ export const getProductById = async (req, res) => {
       .populate("brand")
       .populate("condition")
       .populate("category")
-      .populate("subcategory");
+      .populate("subcategory")
+      .populate("thumbnail")
+      .populate("gallery");
 
     if (!product) {
       return res
@@ -405,7 +446,10 @@ export const getProductById = async (req, res) => {
         .json({ success: false, message: "Product not found" });
     }
 
-    res.status(200).json({ success: true, product });
+    const doc = product.toObject ? product.toObject() : product;
+    doc.image = doc.thumbnail?.url || doc.image;
+    doc.images = (doc.gallery && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];
+    res.status(200).json({ success: true, product: doc });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -436,7 +480,19 @@ export const updateProduct = async (req, res) => {
       refundable,
       competitors,
       existingImages,
+      thumbnailId,
+      galleryIds,
     } = req.body;
+
+    let galleryIdsArr = galleryIds;
+    if (typeof galleryIdsArr === "string") {
+      try {
+        galleryIdsArr = JSON.parse(galleryIdsArr);
+      } catch (_) {
+        galleryIdsArr = [];
+      }
+    }
+    if (!Array.isArray(galleryIdsArr)) galleryIdsArr = [];
 
     console.log("req.body in updateProduct", req.body);
 
@@ -566,17 +622,35 @@ export const updateProduct = async (req, res) => {
       competitors: competitorsObj,
       ...(qrCode && { qrCode }),
     };
-    updateData.images = finalImages;
-    updateData.image = finalImages[0] || null;
+    if (
+      thumbnailId !== undefined ||
+      (Array.isArray(galleryIdsArr) && galleryIdsArr.length > 0)
+    ) {
+      updateData.thumbnail =
+        thumbnailId && mongoose.Types.ObjectId.isValid(thumbnailId) ? thumbnailId : null;
+      updateData.gallery = Array.isArray(galleryIdsArr)
+        ? galleryIdsArr.filter((id) => id && mongoose.Types.ObjectId.isValid(id))
+        : [];
+      updateData.image = null;
+      updateData.images = [];
+    } else {
+      updateData.images = finalImages;
+      updateData.image = finalImages[0] || null;
+    }
 
     const product = await Product.findByIdAndUpdate(id, updateData, {
       new: true,
-    });
+    })
+      .populate("thumbnail")
+      .populate("gallery");
+    const doc = product.toObject ? product.toObject() : product;
+    doc.image = doc.thumbnail?.url || doc.image;
+    doc.images = (doc.gallery && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];
 
     res.status(200).json({
       success: true,
       message: "Product updated successfully ✅",
-      product,
+      product: doc,
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -601,9 +675,17 @@ export const getProductsByFilter = async (req, res) => {
       .populate("category", "name")
       .populate("subcategory")
       .populate("brand", "name")
-      .populate("condition", "name");
+      .populate("condition", "name")
+      .populate("thumbnail")
+      .populate("gallery");
 
-    res.status(200).json({ success: true, products });
+    const withImageUrls = products.map((p) => {
+      const doc = p.toObject ? p.toObject() : p;
+      doc.image = doc.thumbnail?.url || doc.image;
+      doc.images = (doc.gallery && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];
+      return doc;
+    });
+    res.status(200).json({ success: true, products: withImageUrls });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -621,11 +703,18 @@ export const getProductsByFilterStock = async (req, res) => {
       query.quantity = 0;
     }
 
-    const products = await Product.find(query).populate(
-      "brand category subcategory condition"
-    );
+    const products = await Product.find(query)
+      .populate("brand category subcategory condition")
+      .populate("thumbnail")
+      .populate("gallery");
 
-    res.json({ success: true, products });
+    const withImageUrls = products.map((p) => {
+      const doc = p.toObject ? p.toObject() : p;
+      doc.image = doc.thumbnail?.url || doc.image;
+      doc.images = (doc.gallery && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];
+      return doc;
+    });
+    res.json({ success: true, products: withImageUrls });
   } catch (error) {
     res
       .status(500)

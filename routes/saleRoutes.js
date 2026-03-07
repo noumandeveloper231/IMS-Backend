@@ -10,15 +10,16 @@ import {
 } from "../controllers/saleController.js";
 import { createSaleValidation } from "../validators/saleValidators.js";
 import { validate } from "../middlewares/validate.js";
+import { protect, allow } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 
-router.post("/create", createSaleValidation, validate, createSale);
-router.get("/getall", getSales);
-router.get("/getone/:id", getSaleById);
-router.put("/update/:id", updateSale);
-router.delete("/delete/:id", deleteSale);
-router.get("/:id/invoice", getInvoice);
-router.post("/refund/:saleId", processRefund);
+router.post("/create", protect, allow("order.create"), createSaleValidation, validate, createSale);
+router.get("/getall", protect, allow("order.read"), getSales);
+router.get("/getone/:id", protect, allow("order.read"), getSaleById);
+router.put("/update/:id", protect, allow("order.update"), updateSale);
+router.delete("/delete/:id", protect, allow("order.update"), deleteSale);
+router.get("/:id/invoice", protect, allow("order.read"), getInvoice);
+router.post("/refund/:saleId", protect, allow("order.update"), processRefund);
 
 export default router;

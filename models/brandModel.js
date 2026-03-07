@@ -9,8 +9,14 @@ const brandSchema = new mongoose.Schema(
       trim: true,
       unique: true,
     },
+    logo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Media",
+      default: null,
+    },
     image: {
-      type: String, // yaha image ka URL ya filename store hoga
+      type: String,
+      default: null,
     },
   },
   { timestamps: true }

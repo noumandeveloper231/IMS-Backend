@@ -1,5 +1,6 @@
 // routes/expenseCategoryRoutes.js
 import express from "express";
+import { protect, allow } from "../middlewares/authMiddleware.js";
 import {
   createExpenseCategory,
   getExpenseCategories,
@@ -10,11 +11,10 @@ import {
 
 const router = express.Router();
 
-// Public endpoints
-router.post("/create", createExpenseCategory); // Create
-router.get("/getall", getExpenseCategories); // List
-router.get("/getone/:id", getExpenseCategoryById); // Read one
-router.put("/update/:id", updateExpenseCategory); // Update
-router.delete("/delete/:id", deleteExpenseCategory); // Delete
+router.post("/create", protect, allow("expense.manage"), createExpenseCategory);
+router.get("/getall", protect, allow("expense.manage"), getExpenseCategories);
+router.get("/getone/:id", protect, allow("expense.manage"), getExpenseCategoryById);
+router.put("/update/:id", protect, allow("expense.manage"), updateExpenseCategory);
+router.delete("/delete/:id", protect, allow("expense.manage"), deleteExpenseCategory);
 
 export default router;

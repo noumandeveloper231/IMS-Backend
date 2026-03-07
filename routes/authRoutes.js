@@ -14,7 +14,16 @@ router.post(
     body("password")
       .isLength({ min: 6 })
       .withMessage("Password must be at least 6 characters"),
-    body("role").optional().isIn(["admin", "manager", "cashier", "salesman"]),
+    body("role")
+      .optional()
+      .custom((val) => {
+        if (val == null) return true;
+        if (typeof val === "string" && ["admin", "manager", "salesman", "inventory_manager", "viewer"].includes(val))
+          return true;
+        if (typeof val === "string" && /^[a-fA-F0-9]{24}$/.test(val)) return true;
+        return false;
+      })
+      .withMessage("Role must be a role name or valid Role ID"),
   ],
   validate,
   register

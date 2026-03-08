@@ -263,7 +263,8 @@ export const createPurchaseReceive = async (req, res) => {
         brands: [brandId], // ✅ array of ObjectId
         conditions: [conditionId], // ✅ array of ObjectId
         purchasePrice,
-        salePrice,
+        salePrice: salePrice != null && salePrice > 0 ? salePrice : undefined,
+        condition: conditionId || undefined,
         orderedQty: orderedQty || 0,
         receivedQty,
         total,
@@ -311,6 +312,11 @@ export const createPurchaseReceive = async (req, res) => {
           if (poItem.receivedQty > poItem.orderedQty) {
             poItem.receivedQty = poItem.orderedQty;
           }
+
+          // Update PO item prices/condition from this receive
+          if (receivedItem.purchasePrice != null) poItem.purchasePrice = receivedItem.purchasePrice;
+          if (receivedItem.salePrice != null) poItem.salePrice = receivedItem.salePrice;
+          if (receivedItem.condition != null) poItem.condition = receivedItem.condition;
 
           // Check completion
           if (poItem.receivedQty < poItem.orderedQty) {

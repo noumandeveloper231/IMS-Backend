@@ -30,6 +30,8 @@ const purchaseReceiveSchema = new mongoose.Schema(
         orderedQty: { type: Number, required: true },
         receivedQty: { type: Number, required: true },
         purchasePrice: { type: Number, required: true },
+        salePrice: { type: Number, required: false },
+        condition: { type: mongoose.Schema.Types.ObjectId, ref: "Condition", required: false },
         total: { type: Number, required: true },
         status: {
           type: String,

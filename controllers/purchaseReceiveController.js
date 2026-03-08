@@ -179,6 +179,10 @@ export const createPurchaseReceive = async (req, res) => {
       const total = purchasePrice * receivedQty;
       totalAmount += total;
 
+      // Round prices to 2 decimals for storage/display
+      const roundedPurchase = Math.round(Number(purchasePrice) * 100) / 100;
+      const roundedSale = salePrice != null && salePrice > 0 ? Math.round(Number(salePrice) * 100) / 100 : (salePrice != null ? salePrice : undefined);
+
       // 🎯 Resolve condition name
       // let conditionName = "Used";
       // if (typeof condition === "string" && condition.length === 24) {
@@ -209,15 +213,17 @@ export const createPurchaseReceive = async (req, res) => {
         if (bDoc) brandId = bDoc._id;
       }
 
-      // 🏷️ Get condition name for SKU
-      let conditionNameForSku = "Unknown";
+      // 🏷️ Get condition first character for SKU (e.g. Max → M, Used → U)
+      let conditionCodeForSku = "U";
       if (conditionId) {
         const cDoc = await Condition.findById(conditionId).select("name");
-        if (cDoc) conditionNameForSku = cDoc.name;
+        if (cDoc?.name && String(cDoc.name).trim()) {
+          conditionCodeForSku = String(cDoc.name).trim().charAt(0).toUpperCase();
+        }
       }
 
-      // 🏷️ Generate SKU
-      const sku = `AL-${asin}-${conditionNameForSku}`;
+      // 🏷️ Generate SKU: AR-{asin}-{first letter of condition} (same prefix as products)
+      const sku = `AR-${asin}-${conditionCodeForSku}`;
 
       // 🧾 QR code for SKU
       const qrCode = await QRCode.toDataURL(sku);
@@ -231,22 +237,29 @@ export const createPurchaseReceive = async (req, res) => {
       let product = await Product.findOne({ sku });
 
       if (product) {
-        // Update existing product
-        product.quantity += Number(receivedQty);
-        product.purchasePrice = purchasePrice;
-        if (salePrice && salePrice > 0) product.salePrice = salePrice;
+        // Same SKU + same condition: update existing stock with weighted average cost
+        const oldQty = Number(product.quantity) || 0;
+        const oldCost = (Number(product.totalCost) ?? oldQty * Number(product.purchasePrice)) || 0;
+        const newQty = oldQty + Number(receivedQty);
+        const newCost = oldCost + Number(receivedQty) * Number(purchasePrice);
+        product.quantity = newQty;
+        product.totalCost = newCost;
+        const rawUnitPrice = newQty > 0 ? newCost / newQty : Number(purchasePrice);
+        product.purchasePrice = Math.round(rawUnitPrice * 100) / 100;
+        if (salePrice && salePrice > 0) product.salePrice = Math.round(Number(salePrice) * 100) / 100;
         await product.save();
       } else {
-        // Create new product
+        // New SKU+condition: create new product line
         product = new Product({
           title,
           asin,
           sku,
           brand: brandId || undefined,
           condition: conditionId || undefined,
-          purchasePrice,
-          salePrice,
+          purchasePrice: roundedPurchase,
+          salePrice: roundedSale,
           quantity: receivedQty,
+          totalCost: Math.round(Number(receivedQty) * roundedPurchase * 100) / 100,
           vendor,
           qrCode,
           image,
@@ -256,18 +269,18 @@ export const createPurchaseReceive = async (req, res) => {
 
       // Push item into processed array
       processedItems.push({
-        itemId, // ✅ Include itemId for matching with PO items
+        itemId,
         product: product._id,
         title,
         asin,
-        brands: [brandId], // ✅ array of ObjectId
-        conditions: [conditionId], // ✅ array of ObjectId
-        purchasePrice,
-        salePrice: salePrice != null && salePrice > 0 ? salePrice : undefined,
+        brands: [brandId],
+        conditions: [conditionId],
+        purchasePrice: roundedPurchase,
+        salePrice: roundedSale != null && roundedSale > 0 ? roundedSale : undefined,
         condition: conditionId || undefined,
         orderedQty: orderedQty || 0,
         receivedQty,
-        total,
+        total: Math.round(total * 100) / 100,
         status: "approved",
       });
     }
@@ -299,26 +312,30 @@ export const createPurchaseReceive = async (req, res) => {
       let allCompleted = true;
 
       po.items = po.items.map((poItem) => {
-        // ✅ Match by item._id (unique) instead of just ASIN
-        const receivedItem = processedItems.find(
+        // Sum received qty from all receive lines for this PO line (sub-receive by condition)
+        const receivedForThisLine = processedItems.filter(
           (r) => r.itemId && String(r.itemId) === String(poItem._id)
         );
+        const totalReceivedThisTime = receivedForThisLine.reduce(
+          (sum, r) => sum + Number(r.receivedQty || 0),
+          0
+        );
 
-        if (receivedItem) {
+        if (totalReceivedThisTime > 0) {
           poItem.receivedQty =
-            Number(poItem.receivedQty || 0) + Number(receivedItem.receivedQty);
+            Number(poItem.receivedQty || 0) + totalReceivedThisTime;
 
           // Prevent over-receive
           if (poItem.receivedQty > poItem.orderedQty) {
             poItem.receivedQty = poItem.orderedQty;
           }
 
-          // Update PO item prices/condition from this receive
-          if (receivedItem.purchasePrice != null) poItem.purchasePrice = receivedItem.purchasePrice;
-          if (receivedItem.salePrice != null) poItem.salePrice = receivedItem.salePrice;
-          if (receivedItem.condition != null) poItem.condition = receivedItem.condition;
+          // Update PO item prices/condition from first receive (primary; sub-receives may have different prices per condition)
+          const firstReceived = receivedForThisLine[0];
+          if (firstReceived?.purchasePrice != null) poItem.purchasePrice = firstReceived.purchasePrice;
+          if (firstReceived?.salePrice != null) poItem.salePrice = firstReceived.salePrice;
+          if (firstReceived?.condition != null) poItem.condition = firstReceived.condition;
 
-          // Check completion
           if (poItem.receivedQty < poItem.orderedQty) {
             allCompleted = false;
           }

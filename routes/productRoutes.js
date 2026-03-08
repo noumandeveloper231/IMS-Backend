@@ -11,6 +11,7 @@ import {
   getProductsByFilterStock,
   bulkCreateProducts,
   bulkImportProducts,
+  checkSkus,
   deleteProduct,
   uploadProductImage,
   deleteProductImageByUrl,
@@ -41,6 +42,7 @@ router.get("/filter/:type/:id", protect, allow("product.read"), getProductsByFil
 router.get("/filter/stock/:status", protect, allow("product.read"), getProductsByFilterStock);
 router.post("/bulk-create", protect, allow("product.create"), bulkCreateProducts);
 router.post("/bulk-import", protect, allow("product.create"), upload.single("file"), bulkImportProducts);
+router.post("/check-skus", protect, allow("product.read"), checkSkus);
 router.delete("/delete/:id", protect, allow("product.delete"), deleteProduct);
 
 // Bulk dependency & delete (like Categories)

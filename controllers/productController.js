@@ -312,6 +312,28 @@ export const createProduct = async (req, res) => {
   }
 };
 
+/** POST /products/check-skus — return which SKUs already exist in DB (for bulk import validation) */
+export const checkSkus = async (req, res) => {
+  try {
+    const { skus } = req.body;
+    if (!Array.isArray(skus) || skus.length === 0) {
+      return res.status(200).json({ existing: [] });
+    }
+    const trimmed = [...new Set(skus.map((s) => String(s ?? "").trim()).filter(Boolean))];
+    const existing = await Product.find({ sku: { $in: trimmed } })
+      .select("sku")
+      .lean();
+    const existingList = existing.map((p) => p.sku);
+    res.status(200).json({ existing: existingList });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to check SKUs",
+      error: error.message,
+    });
+  }
+};
+
 export const bulkCreateProducts = async (req, res) => {
   try {
     const products = req.body; // Array of products [{title, sku, ...}, ...]
@@ -565,8 +587,6 @@ export const updateProduct = async (req, res) => {
       }
     }
     if (!Array.isArray(galleryIdsArr)) galleryIdsArr = [];
-
-    console.log("req.body in updateProduct", req.body);
 
     // 🔍 Duplicate check: SKU ya ModelNo already exist karta hai?
     const existingProduct = await Product.findOne({

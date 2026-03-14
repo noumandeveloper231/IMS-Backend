@@ -193,7 +193,6 @@ export const createProduct = async (req, res) => {
       brand,
       condition,
       returnable,
-      refundable,
       competitors,
       ourMarketplace,
       amazonUrl,
@@ -256,8 +255,8 @@ export const createProduct = async (req, res) => {
       image = uploadedImages[0] || null;
     }
 
-    const refundableVal =
-      refundable === "false" || refundable === false ? false : true;
+    const returnableVal =
+      returnable === "false" || returnable === false ? false : true;
 
     const competitorsObj = normalizeCompetitors(competitors, {
       amazonUrl,
@@ -281,8 +280,7 @@ export const createProduct = async (req, res) => {
       subcategory: subcategory || null,
       brand,
       condition,
-      returnable: returnable ?? true,
-      refundable: refundableVal,
+      returnable: returnableVal,
       qrCode,
       thumbnail: thumbnail || undefined,
       gallery: gallery.length ? gallery : undefined,
@@ -379,9 +377,9 @@ export const bulkCreateProducts = async (req, res) => {
       const categoryRaw = item.category ?? item.categories ?? item.Categories;
       let categoryId = resolveId(categoriesList, categoryRaw);
 
-      // 🔹 Subcategory
+      // 🔹 Subcategory (optional)
       const subcategoryRaw = item.subcategory ?? item.subcategories ?? item.Subcategories;
-      let subcategoryId = resolveId(subcategoriesList, subcategoryRaw);
+      let subcategoryId = resolveId(subcategoriesList, subcategoryRaw) || null;
 
       // 🔹 Brand
       const brandRaw = item.brand ?? item.brands ?? item.Brands;
@@ -396,8 +394,9 @@ export const bulkCreateProducts = async (req, res) => {
 
       if (!brandId || !conditionId) continue;
 
-      const refundableVal =
-        item.refundable === "false" || item.refundable === false ? false : true;
+      const rawReturnable = item.returnable ?? item.refundable;
+      const returnableVal =
+        rawReturnable === "false" || rawReturnable === false ? false : true;
 
       // ✅ Support multiple images coming from bulk import
       const imagesArray = Array.isArray(item.images)
@@ -420,7 +419,7 @@ export const bulkCreateProducts = async (req, res) => {
         subcategory: subcategoryId,
         brand: brandId,
         condition: conditionId,
-        refundable: refundableVal,
+        returnable: returnableVal,
         qrCode,
         image: imagesArray[0] || null,
         images: imagesArray,
@@ -570,7 +569,7 @@ export const updateProduct = async (req, res) => {
       subcategory,
       brand,
       condition,
-      refundable,
+      returnable,
       competitors,
       ourMarketplace,
       existingImages,
@@ -650,8 +649,8 @@ export const updateProduct = async (req, res) => {
       qrCode = await QRCode.toDataURL(sku);
     }
 
-    const refundableVal =
-      refundable === "false" || refundable === false ? false : true;
+    const returnableVal =
+      returnable === "false" || returnable === false ? false : true;
 
     const competitorsObj = normalizeCompetitors(competitors, {
       amazonUrl: amazonUrl || currentProduct.competitors?.Amazon,
@@ -711,7 +710,7 @@ export const updateProduct = async (req, res) => {
       subcategory: subcategory || null,
       brand,
       condition,
-      refundable: refundableVal,
+      returnable: returnableVal,
       competitors: competitorsObj,
       ourMarketplace: ourMarketplaceObj,
       ...(qrCode && { qrCode }),

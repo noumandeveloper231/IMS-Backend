@@ -60,12 +60,7 @@ const productSchema = new mongoose.Schema(
       type: Object,
       required: false,
     },
-    // ✅ new field
     returnable: {
-      type: Boolean,
-      default: true,
-    },
-    refundable: {
       type: Boolean,
       default: true,
     },

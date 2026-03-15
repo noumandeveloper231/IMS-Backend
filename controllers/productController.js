@@ -7,7 +7,8 @@ import Condition from "../models/conditionModel.js";
 import Sale from "../models/saleModel.js";
 import QRCode from "qrcode";
 import xlsx from "xlsx";
-import { uploadToBlob, deleteFromBlobIfUrl } from "../utils/blob.js";
+import { uploadToBlob, deleteFromBlobIfUrl, getPublicIdFromCloudinaryUrl } from "../utils/blob.js";
+import Media from "../models/mediaModel.js";
 import {
   getProductDependencies as getProductDependenciesService,
   checkBulkDependencies as checkBulkDependenciesService,
@@ -96,6 +97,33 @@ const normalizeOurMarketplace = (raw) => {
       });
   }
   return result;
+};
+
+/**
+ * Add product image URLs to the Gallery (Media collection) with generated alt text.
+ * Only processes Cloudinary URLs; skips duplicates (by url).
+ * Alt: single image = sku, multiple = sku-image-1, sku-image-2, ...
+ */
+const addProductImagesToGallery = async (sku, imageUrls) => {
+  if (!sku || !Array.isArray(imageUrls) || imageUrls.length === 0) return;
+  const urls = imageUrls.filter((u) => typeof u === "string" && u.trim());
+  if (!urls.length) return;
+
+  const MEDIA_FOLDER = "gallery";
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i].trim();
+    const publicId = getPublicIdFromCloudinaryUrl(url);
+    if (!publicId) continue; // only add our Cloudinary uploads to Gallery
+    const existing = await Media.findOne({ url, isDeleted: { $ne: true } });
+    if (existing) continue; // avoid duplicate Gallery entries
+    const alt = urls.length === 1 ? sku : `${sku}-image-${i + 1}`;
+    await Media.create({
+      url,
+      public_id: publicId,
+      alt,
+      folder: MEDIA_FOLDER,
+    });
+  }
 };
 
 // ✅ Upload product image only (returns URL for use in bulk import etc.)
@@ -292,6 +320,15 @@ export const createProduct = async (req, res) => {
 
     await product.save();
 
+    // Add uploaded product images to Gallery (Media) with generated alt text
+    if (uploadedImages && uploadedImages.length > 0) {
+      try {
+        await addProductImagesToGallery(product.sku, uploadedImages);
+      } catch (galleryErr) {
+        console.warn("Gallery sync after product create:", galleryErr?.message || galleryErr);
+      }
+    }
+
     const created = await Product.findById(product._id)
       .populate("thumbnail")
       .populate("gallery")
@@ -433,7 +470,23 @@ export const bulkCreateProducts = async (req, res) => {
       });
     }
 
-    await Product.insertMany(newProducts);
+    const inserted = await Product.insertMany(newProducts);
+
+    // Add each product's images to Gallery (Media) with generated alt text
+    for (const product of inserted) {
+      const images = Array.isArray(product.images)
+        ? product.images.filter((img) => typeof img === "string" && img)
+        : product.image
+          ? [product.image]
+          : [];
+      if (images.length > 0 && product.sku) {
+        try {
+          await addProductImagesToGallery(product.sku, images);
+        } catch (galleryErr) {
+          console.warn(`Gallery sync for product ${product.sku}:`, galleryErr?.message || galleryErr);
+        }
+      }
+    }
 
     res.status(201).json({
       success: true,
@@ -740,6 +793,16 @@ export const updateProduct = async (req, res) => {
       .populate("condition")
       .populate("thumbnail")
       .populate("gallery");
+
+    // Add newly uploaded images to Gallery (Media) with generated alt text
+    if (uploadedImages && uploadedImages.length > 0 && product.sku) {
+      try {
+        await addProductImagesToGallery(product.sku, uploadedImages);
+      } catch (galleryErr) {
+        console.warn("Gallery sync after product update:", galleryErr?.message || galleryErr);
+      }
+    }
+
     const doc = product.toObject ? product.toObject() : product;
     doc.image = doc.thumbnail?.url || doc.image;
     doc.images = (doc.gallery && doc.gallery.length > 0 && doc.gallery.map((m) => m?.url).filter(Boolean)) || doc.images || [];

@@ -3,6 +3,7 @@ import { protect, allow } from "../middlewares/authMiddleware.js";
 import upload from "../middlewares/upload.js";
 import {
   uploadMedia,
+  bulkCreateMedia,
   getMedia,
   getMediaById,
   deleteMedia,
@@ -23,6 +24,7 @@ router.post("/move", protect, allow("media.upload"), moveMediaToFolder);
 router.post("/copy", protect, allow("media.upload"), copyMediaToFolder);
 router.patch("/:id", protect, allow("media.upload"), updateMedia);
 router.post("/upload", protect, allow("media.upload"), upload.array("images", 20), uploadMedia);
+router.post("/bulk", protect, allow("media.upload"), bulkCreateMedia);
 router.get("/", protect, allow("media.read"), getMedia);
 router.get("/:id", protect, allow("media.read"), getMediaById);
 router.delete("/:id", protect, allow("media.delete"), deleteMedia);

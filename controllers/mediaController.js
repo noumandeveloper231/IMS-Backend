@@ -4,10 +4,72 @@ import Brand from "../models/brandModel.js";
 import Category from "../models/categoryModel.js";
 import Condition from "../models/conditionModel.js";
 import Product from "../models/productModel.js";
-import { uploadToBlobWithMetadata } from "../utils/blob.js";
+import { uploadToBlobWithMetadata, getPublicIdFromCloudinaryUrl } from "../utils/blob.js";
 import { deleteFromBlobIfUrl } from "../utils/blob.js";
 
 const MEDIA_FOLDER = "gallery";
+
+/**
+ * POST /media/bulk
+ * Body: { images: [ { url, alt } ] }. Creates Gallery (Media) entries for each Cloudinary URL; skips duplicates by url.
+ */
+export const bulkCreateMedia = async (req, res, next) => {
+  try {
+    const { images } = req.body || {};
+    if (!Array.isArray(images) || images.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Body must include 'images' array with { url, alt } objects.",
+      });
+    }
+
+    const folder = (req.body && req.body.folder) || MEDIA_FOLDER;
+    const created = [];
+
+    for (const item of images) {
+      const url = (item && item.url) ? String(item.url).trim() : "";
+      let alt = (item && item.alt != null) ? String(item.alt).trim() : "";
+      if (!url) continue;
+
+      const publicId = getPublicIdFromCloudinaryUrl(url);
+      if (!publicId) continue;
+
+      const existing = await Media.findOne({ url, isDeleted: { $ne: true } });
+      if (existing) continue;
+
+      // Default alt to filename (without extension) when not provided
+      if (!alt) {
+        try {
+          const lastSegment = url.split(/[/?#]/).pop() || "";
+          const base =
+            lastSegment.lastIndexOf(".") > 0
+              ? lastSegment.slice(0, lastSegment.lastIndexOf("."))
+              : lastSegment;
+          alt = base || "";
+        } catch {
+          alt = "";
+        }
+      }
+
+      const media = await Media.create({
+        url,
+        public_id: publicId,
+        alt,
+        folder,
+        createdBy: req.user?._id || null,
+      });
+      created.push(media);
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: `${created.length} image(s) added to gallery.`,
+      created,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
 /**
  * POST /media/upload
@@ -30,6 +92,20 @@ export const uploadMedia = async (req, res, next) => {
     for (const file of files) {
       const meta = await uploadToBlobWithMetadata(file, folder);
       if (!meta) continue;
+
+      // Default alt text to the original filename (without extension)
+      let alt = "";
+      try {
+        const original = file.originalname || "";
+        const base =
+          original.lastIndexOf(".") > 0
+            ? original.slice(0, original.lastIndexOf("."))
+            : original;
+        alt = base || original || "";
+      } catch {
+        alt = "";
+      }
+
       const media = await Media.create({
         url: meta.url,
         public_id: meta.public_id,
@@ -37,6 +113,7 @@ export const uploadMedia = async (req, res, next) => {
         height: meta.height,
         format: meta.format,
         size: meta.size,
+        alt,
         folder, // use request folder path so filtering matches gallery folders
         createdBy: req.user?._id || null,
       });
@@ -278,10 +355,21 @@ export const updateMedia = async (req, res, next) => {
       return res.status(404).json({ success: false, message: "Media not found" });
     }
     const folder = (req.body && req.body.folder) != null ? String(req.body.folder).trim() : null;
+    const altRaw = Object.prototype.hasOwnProperty.call(req.body || {}, "alt")
+      ? String(req.body.alt ?? "").trim()
+      : null;
+
     if (folder !== null) {
       media.folder = folder || MEDIA_FOLDER;
+    }
+    if (altRaw !== null) {
+      media.alt = altRaw;
+    }
+
+    if (folder !== null || altRaw !== null) {
       await media.save();
     }
+
     return res.status(200).json(media);
   } catch (err) {
     next(err);

@@ -3,14 +3,9 @@ import sharp from "sharp";
 
 let cloudinaryConfigured = false;
 
-// Image optimization: max dimension (longest side), WebP quality
 const MAX_IMAGE_DIMENSION = 2560;
 const WEBP_QUALITY = 82;
 
-/**
- * Optimize image buffer: resize, strip metadata, normalize orientation, convert to WebP.
- * Returns optimized buffer or null on failure (caller should use original buffer).
- */
 async function optimizeImageBuffer(buffer) {
   if (!buffer || !Buffer.isBuffer(buffer)) return null;
   try {
@@ -36,29 +31,6 @@ function ensureCloudinaryConfigured() {
     CLOUDINARY_API_SECRET,
   } = process.env;
 
-  // #region agent log
-  fetch("http://127.0.0.1:7501/ingest/142a21d8-3463-403b-84a8-7ee25ddfce09", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "642218",
-    },
-    body: JSON.stringify({
-      sessionId: "642218",
-      runId: "pre-fix",
-      hypothesisId: "H-env",
-      location: "utils/blob.js:8-20",
-      message: "ensureCloudinaryConfigured env presence",
-      data: {
-        hasCloudName: !!CLOUDINARY_CLOUD_NAME,
-        hasApiKey: !!CLOUDINARY_API_KEY,
-        hasApiSecret: !!CLOUDINARY_API_SECRET,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion agent log
-
   cloudinary.config({
     cloud_name: CLOUDINARY_CLOUD_NAME,
     api_key: CLOUDINARY_API_KEY,
@@ -68,7 +40,6 @@ function ensureCloudinaryConfigured() {
   cloudinaryConfigured = true;
 }
 
-// Map mimetype/extension to Cloudinary resource_type: image | video | raw (PDF, docs, etc.)
 function getResourceType(file) {
   const mime = (file.mimetype || "").toLowerCase();
   const name = (file.originalname || "").toLowerCase();
@@ -78,11 +49,6 @@ function getResourceType(file) {
   return "image"; // default for images and unknown
 }
 
-/**
- * Upload a single file buffer (from Multer) to Cloudinary.
- * Supports images, PDFs, and other files (images + video + raw).
- * Same API as before: uploadToBlob(file, folder) -> returns URL string.
- */
 export const uploadToBlob = async (file, folder) => {
   if (!file || !file.buffer) return null;
 
@@ -91,32 +57,6 @@ export const uploadToBlob = async (file, folder) => {
   const resourceType = getResourceType(file);
   const baseFolder = process.env.CLOUDINARY_FOLDER || "";
   const folderPath = baseFolder ? `${baseFolder}/${folder}` : folder;
-
-  // #region agent log
-  fetch("http://127.0.0.1:7501/ingest/142a21d8-3463-403b-84a8-7ee25ddfce09", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "642218",
-    },
-    body: JSON.stringify({
-      sessionId: "642218",
-      runId: "pre-fix",
-      hypothesisId: "H-upload",
-      location: "utils/blob.js:31-43",
-      message: "uploadToBlob before cloudinary.upload_stream",
-      data: {
-        folder,
-        folderPath,
-        resourceType,
-        hasBuffer: !!file.buffer,
-        mimetype: file.mimetype,
-        originalname: file.originalname,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion agent log
 
   let bufferToUpload = file.buffer;
   if (resourceType === "image") {
@@ -142,14 +82,8 @@ export const uploadToBlob = async (file, folder) => {
   });
 };
 
-/** Default folder for Media Library uploads */
 const MEDIA_FOLDER = "gallery";
 
-/**
- * Upload a single file to Cloudinary and return full metadata for Media collection.
- * Used by Media Library: upload → save metadata in DB.
- * Returns: { url, public_id, width, height, format, size, folder } or null.
- */
 export const uploadToBlobWithMetadata = async (file, folder = MEDIA_FOLDER) => {
   if (!file || !file.buffer) return null;
 
@@ -193,10 +127,6 @@ export const uploadToBlobWithMetadata = async (file, folder = MEDIA_FOLDER) => {
 const VIDEO_EXT = "mp4|webm|mov|avi|mkv";
 const RAW_EXT = "pdf|doc|docx|xls|xlsx|txt|zip";
 
-/**
- * Extract Cloudinary public_id and resource_type from a Cloudinary URL.
- * URL format: https://res.cloudinary.com/<cloud>/<type>/upload/v<version>/<public_id>.<ext>
- */
 function parseCloudinaryUrl(url) {
   if (!url || typeof url !== "string") return null;
   try {
@@ -212,6 +142,15 @@ function parseCloudinaryUrl(url) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Get public_id from a Cloudinary URL for creating Media/Gallery entries.
+ * Returns null if URL is not a Cloudinary URL (e.g. external URLs from bulk import).
+ */
+export function getPublicIdFromCloudinaryUrl(url) {
+  const parsed = parseCloudinaryUrl(url);
+  return parsed ? parsed.publicId : null;
 }
 
 /**

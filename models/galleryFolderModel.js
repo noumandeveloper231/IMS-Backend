@@ -10,6 +10,4 @@ const folderSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-folderSchema.index({ path: 1 });
-
 export default mongoose.model("GalleryFolder", folderSchema);

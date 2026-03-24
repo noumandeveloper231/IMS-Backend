@@ -29,7 +29,7 @@ import imageRoutes from "./routes/imageRoutes.js";
 import mediaRoutes from "./routes/mediaRoutes.js";
 import settingRoutes from "./routes/settingRoutes.js";
 
-dotenv.config();
+dotenv.config({quiet: true});
 
 const app = express();
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || "http://localhost:5173,http://localhost:5174").split(",");

@@ -14,8 +14,8 @@
   "type": "module",
   "dependencies": {
     "@sparticuz/chromium": "^143.0.4",
-    "cloudinary": "^2.5.1",
     "bcryptjs": "^3.0.3",
+    "cloudinary": "^2.5.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
@@ -23,11 +23,12 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.18.0",
     "multer": "^2.0.2",
-    "sharp": "^0.33.5",
     "nodemon": "^3.1.10",
     "pdfkit": "^0.17.2",
+    "png-to-ico": "^3.0.1",
     "puppeteer-core": "^24.37.5",
     "qrcode": "^1.5.4",
+    "sharp": "^0.33.5",
     "socket.io": "^4.8.3",
     "xlsx": "^0.18.5"
   }

@@ -43,6 +43,14 @@ function ensureCloudinaryConfigured() {
 function getResourceType(file) {
   const mime = (file.mimetype || "").toLowerCase();
   const name = (file.originalname || "").toLowerCase();
+  if (
+    name.endsWith(".ico") ||
+    mime === "image/x-icon" ||
+    mime === "image/vnd.microsoft.icon"
+  ) {
+    // Keep favicon as raw .ico (do not optimize to webp)
+    return "raw";
+  }
   if (/^video\//.test(mime) || /\.(mp4|webm|mov|avi|mkv)$/.test(name)) return "video";
   if (/^application\/pdf$/i.test(mime) || name.endsWith(".pdf")) return "raw";
   if (/^(application|text)\//.test(mime) || /\.(doc|docx|xls|xlsx|txt|zip)$/.test(name)) return "raw";

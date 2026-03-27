@@ -4,6 +4,7 @@ import chromium from "@sparticuz/chromium";
 import QRCode from "qrcode";
 import path from "path";
 import fs from "fs";
+import Setting from "../models/settingModel.js";
 
 // Company info config (can be fetched from DB)
 const companyInfo = {
@@ -29,6 +30,9 @@ const generateInvoicePDF = async (res, sale) => {
     // QR code for invoice verification
     const invoiceUrl = `https://alramil.ae/invoice/${sale._id}`;
     const qrDataUrl = await QRCode.toDataURL(invoiceUrl);
+
+    const settings = await Setting.findOne().select("currency").lean();
+    const currency = settings?.currency || "AED";
 
     // Calculate totals with tax and discount
     const subtotal = sale.items.reduce((acc, item) => {
@@ -120,8 +124,8 @@ const generateInvoicePDF = async (res, sale) => {
                 }">
                 <td class="p-2">${product.title || "Unknown Product"}</td>
                 <td class="p-2 text-center">${qty}</td>
-                <td class="p-2 text-right">$${price.toFixed(2)}</td>
-                <td class="p-2 text-right">$${totalRow.toFixed(2)}</td>
+                <td class="p-2 text-right">${currency} ${price.toFixed(2)}</td>
+                <td class="p-2 text-right">${currency} ${totalRow.toFixed(2)}</td>
               </tr>`;
               })
               .join("")}
@@ -130,10 +134,10 @@ const generateInvoicePDF = async (res, sale) => {
 
         <!-- Subtotal, Tax, Discount, Total -->
         <div style="text-align:right;margin-bottom:20px;">
-          <p>Subtotal: $${subtotal.toFixed(2)}</p>
-          <p>Tax: $${tax.toFixed(2)}</p>
-          <p>Discount: $${discount.toFixed(2)}</p>
-          <p class="font-bold text-xl text-blue-600">Grand Total: $${total.toFixed(
+          <p>Subtotal: ${currency} ${subtotal.toFixed(2)}</p>
+          <p>Tax: ${currency} ${tax.toFixed(2)}</p>
+          <p>Discount: ${currency} ${discount.toFixed(2)}</p>
+          <p class="font-bold text-xl text-blue-600">Grand Total: ${currency} ${total.toFixed(
             2
           )}</p>
         </div>

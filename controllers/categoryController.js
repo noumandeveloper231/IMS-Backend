@@ -4,6 +4,7 @@ import Category from "../models/categoryModel.js";
 import Subcategory from "../models/subcategoryModel.js";
 import Product from "../models/productModel.js";
 import { uploadToBlob, deleteFromBlobIfUrl } from "../utils/blob.js";
+import { syncImageToGallery } from "../utils/mediaUtils.js";
 import {
   checkBulkDependencies as checkBulkDependenciesService,
   bulkDeletePreview as bulkDeletePreviewService,
@@ -19,6 +20,10 @@ export const uploadCategoryImage = async (req, res) => {
       });
     }
     const imageUrl = await uploadToBlob(req.file, "categories");
+    // Also sync to gallery if it's a new upload
+    if (imageUrl) {
+      await syncImageToGallery(imageUrl, req.body.name || "Category Image", "categories", req.user?._id);
+    }
     res.status(200).json({
       success: true,
       url: imageUrl,
@@ -66,11 +71,15 @@ export const createCategory = async (req, res) => {
       imageRef = imageId;
     } else if (req.file) {
       imageUrl = await uploadToBlob(req.file, "categories");
+      if (imageUrl) {
+        // Sync to gallery and use the new media ID
+        imageRef = await syncImageToGallery(imageUrl, name, "categories", req.user?._id);
+      }
     }
 
     const category = new Category({
       name: name?.trim(),
-      image: imageRef,
+      image: imageRef || undefined,
       imageUrl: imageUrl || undefined,
     });
     await category.save();
@@ -257,7 +266,9 @@ export const updateCategory = async (req, res) => {
     }
     if (newImageUrl) {
       category.imageUrl = newImageUrl;
-      category.image = null;
+      // Sync new upload to gallery
+      const mediaId = await syncImageToGallery(newImageUrl, name, "categories", req.user?._id);
+      category.image = mediaId || null;
     }
     await category.save();
 

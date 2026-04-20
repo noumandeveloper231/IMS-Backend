@@ -9,6 +9,7 @@ import QRCode from "qrcode";
 import xlsx from "xlsx";
 import { uploadToBlob, deleteFromBlobIfUrl, getPublicIdFromCloudinaryUrl } from "../utils/blob.js";
 import Media from "../models/mediaModel.js";
+import { syncImageToGallery } from "../utils/mediaUtils.js";
 import {
   getProductDependencies as getProductDependenciesService,
   checkBulkDependencies as checkBulkDependenciesService,
@@ -103,27 +104,35 @@ const normalizeOurMarketplace = (raw) => {
  * Add product image URLs to the Gallery (Media collection) with generated alt text.
  * Only processes Cloudinary URLs; skips duplicates (by url).
  * Alt: single image = sku, multiple = sku-image-1, sku-image-2, ...
+ * Returns the IDs of the created or existing Media records.
  */
-const addProductImagesToGallery = async (sku, imageUrls) => {
-  if (!sku || !Array.isArray(imageUrls) || imageUrls.length === 0) return;
+const addProductImagesToGallery = async (sku, imageUrls, userId = null) => {
+  if (!sku || !Array.isArray(imageUrls) || imageUrls.length === 0) return [];
   const urls = imageUrls.filter((u) => typeof u === "string" && u.trim());
-  if (!urls.length) return;
+  if (!urls.length) return [];
 
   const MEDIA_FOLDER = "gallery";
+  const mediaIds = [];
+  
   for (let i = 0; i < urls.length; i++) {
     const url = urls[i].trim();
     const publicId = getPublicIdFromCloudinaryUrl(url);
-    if (!publicId) continue; // only add our Cloudinary uploads to Gallery
-    const existing = await Media.findOne({ url, isDeleted: { $ne: true } });
-    if (existing) continue; // avoid duplicate Gallery entries
-    const alt = urls.length === 1 ? sku : `${sku}-image-${i + 1}`;
-    await Media.create({
-      url,
-      public_id: publicId,
-      alt,
-      folder: MEDIA_FOLDER,
-    });
+    if (!publicId) continue; 
+
+    let media = await Media.findOne({ url, isDeleted: { $ne: true } });
+    if (!media) {
+      const alt = urls.length === 1 ? sku : `${sku}-image-${i + 1}`;
+      media = await Media.create({
+        url,
+        public_id: publicId,
+        alt,
+        folder: MEDIA_FOLDER,
+        createdBy: userId,
+      });
+    }
+    if (media) mediaIds.push(media._id);
   }
+  return mediaIds;
 };
 
 // ✅ Upload product image only (returns URL for use in bulk import etc.)
@@ -323,7 +332,12 @@ export const createProduct = async (req, res) => {
     // Add uploaded product images to Gallery (Media) with generated alt text
     if (uploadedImages && uploadedImages.length > 0) {
       try {
-        await addProductImagesToGallery(product.sku, uploadedImages);
+        const syncedIds = await addProductImagesToGallery(product.sku, uploadedImages, req.user?._id);
+        if (syncedIds && syncedIds.length > 0) {
+          if (!product.thumbnail) product.thumbnail = syncedIds[0];
+          if (!product.gallery || product.gallery.length === 0) product.gallery = syncedIds;
+          await product.save();
+        }
       } catch (galleryErr) {
         console.warn("Gallery sync after product create:", galleryErr?.message || galleryErr);
       }
@@ -797,7 +811,17 @@ export const updateProduct = async (req, res) => {
     // Add newly uploaded images to Gallery (Media) with generated alt text
     if (uploadedImages && uploadedImages.length > 0 && product.sku) {
       try {
-        await addProductImagesToGallery(product.sku, uploadedImages);
+        const syncedIds = await addProductImagesToGallery(product.sku, uploadedImages, req.user?._id);
+        if (syncedIds && syncedIds.length > 0) {
+          if (!product.thumbnail) product.thumbnail = syncedIds[0];
+          // Append new images to gallery if it's already using media library
+          if (Array.isArray(product.gallery) && product.gallery.length > 0) {
+            product.gallery = [...product.gallery, ...syncedIds];
+          } else if (!product.gallery || product.gallery.length === 0) {
+            product.gallery = syncedIds;
+          }
+          await product.save();
+        }
       } catch (galleryErr) {
         console.warn("Gallery sync after product update:", galleryErr?.message || galleryErr);
       }

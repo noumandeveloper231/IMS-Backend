@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Brand from "../models/brandModel.js";
 import Product from "../models/productModel.js";
 import { uploadToBlob, deleteFromBlobIfUrl } from "../utils/blob.js";
+import { syncImageToGallery } from "../utils/mediaUtils.js";
 import {
   checkBulkDependencies as checkBulkDependenciesService,
   bulkDeletePreview as bulkDeletePreviewService,
@@ -18,6 +19,10 @@ export const uploadBrandImage = async (req, res) => {
       });
     }
     const imageUrl = await uploadToBlob(req.file, "brands");
+    // Also sync to gallery if it's a new upload
+    if (imageUrl) {
+      await syncImageToGallery(imageUrl, req.body.name || "Brand Image", "brands", req.user?._id);
+    }
     res.status(200).json({
       success: true,
       url: imageUrl,
@@ -63,6 +68,10 @@ export const createBrand = async (req, res) => {
       logoRef = logoId;
     } else if (req.file) {
       imageUrl = await uploadToBlob(req.file, "brands");
+      if (imageUrl) {
+        // Sync to gallery and use the new media ID
+        logoRef = await syncImageToGallery(imageUrl, name, "brands", req.user?._id);
+      }
     }
 
     const existingBrand = await Brand.findOne({ name: name?.trim() });
@@ -75,7 +84,7 @@ export const createBrand = async (req, res) => {
 
     const newBrand = new Brand({
       name: name?.trim(),
-      logo: logoRef,
+      logo: logoRef || undefined,
       image: imageUrl || undefined,
     });
     await newBrand.save();
@@ -386,7 +395,9 @@ export const updateBrand = async (req, res) => {
     }
     if (newImageUrl) {
       brand.image = newImageUrl;
-      brand.logo = null;
+      // Sync new upload to gallery
+      const mediaId = await syncImageToGallery(newImageUrl, name, "brands", req.user?._id);
+      brand.logo = mediaId || null;
     }
     await brand.save();
 

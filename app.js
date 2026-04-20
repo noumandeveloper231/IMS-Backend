@@ -58,9 +58,9 @@ app.use(cors({ origin: CORS_ORIGINS }));
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // In production (Vercel serverless), connect DB on first request
-if (process.env.NODE_ENV === "production") {
-  app.use(ensureDb);
-}
+// if (process.env.NODE_ENV === "production") {
+//   app.use(ensureDb);
+// }
 
 app.use("/api/auth", authRoutes);
 app.use("/api/categories", CategoryRoutes);

@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import Condition from "../models/conditionModel.js";
 import Product from "../models/productModel.js";
 import { uploadToBlob, deleteFromBlobIfUrl } from "../utils/blob.js";
+import { syncImageToGallery } from "../utils/mediaUtils.js";
 import {
   checkBulkDependencies as checkBulkDependenciesService,
   bulkDeletePreview as bulkDeletePreviewService,
@@ -19,6 +20,10 @@ export const uploadConditionImage = async (req, res) => {
       });
     }
     const imageUrl = await uploadToBlob(req.file, "conditions");
+    // Also sync to gallery if it's a new upload
+    if (imageUrl) {
+      await syncImageToGallery(imageUrl, req.body.name || "Condition Image", "conditions", req.user?._id);
+    }
     res.status(200).json({
       success: true,
       url: imageUrl,
@@ -81,6 +86,10 @@ export const createCondition = async (req, res) => {
       imageRef = imageId;
     } else if (req.file) {
       imageUrl = await uploadToBlob(req.file, "conditions");
+      if (imageUrl) {
+        // Sync to gallery and use the new media ID
+        imageRef = await syncImageToGallery(imageUrl, name, "conditions", req.user?._id);
+      }
     }
 
     const existingCondition = await Condition.findOne({ name: name?.trim() });
@@ -93,13 +102,28 @@ export const createCondition = async (req, res) => {
 
     const newCondition = new Condition({
       name: name?.trim(),
-      imageRef,
-      image: imageUrl,
+      imageRef: imageRef || undefined,
+      image: imageUrl || undefined,
       description: description || null,
       tags: tags || [],
       exampleProductImages: exampleProductImages || [],
     });
     await newCondition.save();
+
+    // Sync example product images to gallery if any
+    if (exampleProductImages && exampleProductImages.length > 0) {
+      for (let i = 0; i < exampleProductImages.length; i++) {
+        const url = exampleProductImages[i];
+        if (url && typeof url === "string") {
+          await syncImageToGallery(
+            url,
+            `${name?.trim()} Example ${i + 1}`,
+            "conditions/examples",
+            req.user?._id
+          );
+        }
+      }
+    }
 
     const populated = await Condition.findById(newCondition._id).populate("imageRef").lean();
     const payload = populated
@@ -425,8 +449,26 @@ export const updateCondition = async (req, res) => {
     }
     if (newImageUrl) {
       condition.image = newImageUrl;
-      condition.imageRef = null;
+      // Sync new upload to gallery
+      const mediaId = await syncImageToGallery(newImageUrl, name, "conditions", req.user?._id);
+      condition.imageRef = mediaId || null;
     }
+
+    // Sync example product images to gallery if updated
+    if (exampleProductImages && exampleProductImages.length > 0) {
+      for (let i = 0; i < exampleProductImages.length; i++) {
+        const url = exampleProductImages[i];
+        if (url && typeof url === "string") {
+          await syncImageToGallery(
+            url,
+            `${name?.trim()} Example ${i + 1}`,
+            "conditions/examples",
+            req.user?._id
+          );
+        }
+      }
+    }
+
     await condition.save();
 
     const populated = await Condition.findById(condition._id).populate("imageRef").lean();

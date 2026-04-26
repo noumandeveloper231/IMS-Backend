@@ -3,9 +3,7 @@ import mongoose from "mongoose";
 
 const connectDB = async (uri) => {
   try {
-    await mongoose.connect(uri, {
-      // options not required with mongoose 6+
-    });
+    await mongoose.connect(uri);
     console.log("MongoDB connected");
   } catch (err) {
     console.error("MongoDB connection error:", err.message);

@@ -29,10 +29,12 @@ import imageRoutes from "./routes/imageRoutes.js";
 import mediaRoutes from "./routes/mediaRoutes.js";
 import settingRoutes from "./routes/settingRoutes.js";
 
-dotenv.config({quiet: true});
+dotenv.config({ quiet: true });
 
 const app = express();
-const CORS_ORIGINS = (process.env.CORS_ORIGINS || "http://localhost:5173,http://localhost:5174").split(",");
+const CORS_ORIGINS = (
+  process.env.CORS_ORIGINS || "http://localhost:5173,http://localhost:5174"
+).split(",");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,9 +60,9 @@ app.use(cors({ origin: CORS_ORIGINS }));
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // In production (Vercel serverless), connect DB on first request
-// if (process.env.NODE_ENV === "production") {
-//   app.use(ensureDb);
-// }
+if (process.env.NODE_ENV === "production") {
+  app.use(ensureDb);
+}
 
 app.use("/api/auth", authRoutes);
 app.use("/api/categories", CategoryRoutes);

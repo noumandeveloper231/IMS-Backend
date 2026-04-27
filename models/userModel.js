@@ -3,9 +3,12 @@ import bcrypt from "bcryptjs";
 
 const userSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true },
+    firstName: { type: String, required: true },
+    lastName: { type: String, required: true },
+    name: { type: String, required: true }, // Keep for backward compatibility
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true, select: false },
+    profilePicture: { type: String, default: "" },
     role: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Role",
@@ -17,7 +20,7 @@ const userSchema = new mongoose.Schema(
     },
     status: { type: String, enum: ["active", "inactive"], default: "active" },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 userSchema.pre("save", async function (next) {

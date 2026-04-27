@@ -11,18 +11,24 @@ const generateToken = (id, roleName, permissions) => {
   return jwt.sign(
     { id, role: roleName, permissions: permissions || [] },
     process.env.JWT_SECRET || "pos-ims-secret",
-    { expiresIn: process.env.JWT_EXPIRE || "7d" }
+    { expiresIn: process.env.JWT_EXPIRE || "7d" },
   );
 };
 
 function buildUserPayload(user, roleDoc) {
-  const roleName = roleDoc ? roleDoc.name : (user.role && user.role.name);
-  const rawPermissions = roleDoc ? roleDoc.permissions : (user.role && user.role.permissions) || [];
+  const roleName = roleDoc ? roleDoc.name : user.role && user.role.name;
+  const rawPermissions = roleDoc
+    ? roleDoc.permissions
+    : (user.role && user.role.permissions) || [];
   const permissions = getEffectivePermissions(rawPermissions);
   return {
     id: user._id,
     name: user.name,
+    firstName: user.firstName,
+    lastName: user.lastName,
     email: user.email,
+    profilePicture: user.profilePicture,
+    createdAt: user.createdAt,
     role: roleName,
     permissions,
   };
@@ -38,7 +44,11 @@ export const register = async (req, res, next) => {
       throw error;
     }
     let roleId = roleInput;
-    if (roleInput && typeof roleInput === "string" && !mongoose.Types.ObjectId.isValid(roleInput)) {
+    if (
+      roleInput &&
+      typeof roleInput === "string" &&
+      !mongoose.Types.ObjectId.isValid(roleInput)
+    ) {
       const roleDoc = await Role.findOne({ name: roleInput });
       if (!roleDoc) {
         const error = new Error(`Unknown role: ${roleInput}`);
@@ -50,7 +60,9 @@ export const register = async (req, res, next) => {
     if (!roleId) {
       const salesmanRole = await Role.findOne({ name: "salesman" });
       if (!salesmanRole) {
-        const error = new Error("Default role 'salesman' not found. Run scripts/seedRoles.js first.");
+        const error = new Error(
+          "Default role 'salesman' not found. Run scripts/seedRoles.js first.",
+        );
         error.statusCode = 500;
         throw error;
       }
@@ -79,7 +91,9 @@ export const register = async (req, res, next) => {
 export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email }).select("+password").populate("role");
+    const user = await User.findOne({ email })
+      .select("+password")
+      .populate("role");
     if (!user) {
       const error = new Error("Invalid email or password");
       error.statusCode = 401;

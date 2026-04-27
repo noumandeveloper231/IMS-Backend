@@ -28,6 +28,7 @@ import roleRoutes from "./routes/roleRoutes.js";
 import imageRoutes from "./routes/imageRoutes.js";
 import mediaRoutes from "./routes/mediaRoutes.js";
 import settingRoutes from "./routes/settingRoutes.js";
+import searchRoutes from "./routes/searchRoutes.js";
 
 dotenv.config({ quiet: true });
 
@@ -56,7 +57,14 @@ const ensureDb = async (req, res, next) => {
 };
 
 app.use(express.json());
-app.use(cors({ origin: CORS_ORIGINS }));
+app.use(
+  cors({
+    origin: CORS_ORIGINS,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // In production (Vercel serverless), connect DB on first request
@@ -85,6 +93,7 @@ app.use("/api/roles", roleRoutes);
 app.use("/api/images", imageRoutes);
 app.use("/api/media", mediaRoutes);
 app.use("/api/settings", settingRoutes);
+app.use("/api/search", searchRoutes);
 app.use("/api", countRoutes);
 
 app.use(errorHandler);
